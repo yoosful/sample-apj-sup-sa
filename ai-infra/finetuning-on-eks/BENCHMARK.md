@@ -14,6 +14,7 @@ Compare training time and cost across different GPU instances for various model 
 |------|-------|----------------|
 | 1B | TinyLlama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` |
 | 7B | Mistral 7B | `mistralai/Mistral-7B-Instruct-v0.3` |
+| 35B MoE | Qwen3.6 35B-A3B | `Qwen/Qwen3.6-35B-A3B` |
 | 70B | Llama 3 | `meta-llama/Meta-Llama-3-70B` |
 
 ## Instance Comparison Dimensions
@@ -43,6 +44,7 @@ lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
 # Quantization / Sharding - per model size (see below)
 # 1B, 8B: use_qlora: false (full precision LoRA)
 # 70B: use_qlora: true (all instances, for fair comparison)
+# 35B MoE: Megatron-SWIFT + LoRA + expert parallelism
 # 235B: DeepSpeed ZeRO-3 + LoRA (full precision, sharded across 8 GPUs)
 
 # Sequence length
@@ -176,6 +178,13 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 70B-08 | p4d.24xlarge | 16 | 2 | FSDP (HYBRID) | Pending |
 | 70B-09 | p4d.24xlarge | 32 | 4 | FSDP (HYBRID) | Pending |
 
+### 35B MoE Model (Qwen3.6-35B-A3B) - Expert Parallelism
+
+| ID | Instance | GPUs | Nodes | Parallelism | Status |
+|----|----------|------|-------|-------------|--------|
+| 35B-MOE-01 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+| 35B-MOE-02 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+
 ## Results
 
 ### 1B Model
@@ -249,6 +258,15 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 70B-07 | - | - | - | - | - | - | - | |
 | 70B-08 | - | - | - | - | - | - | - | |
 | 70B-09 | - | - | - | - | - | - | - | |
+
+### 35B MoE Model (Qwen3.6-35B-A3B) - Megatron-SWIFT + LoRA + EP
+
+| ID | Batch/GPU | Global Batch | Throughput (samples/s) | Scaling Eff | GPU % | VRAM (GB) | Wall Time | $/10k samples | Notes |
+|----|-----------|--------------|------------------------|-------------|-------|-----------|-----------|---------------|-------|
+| 35B-MOE-01 | 4 | 16 | 1.70† | - | - | 24.27 | 2m31s train / 634s attempt | ~$17.16† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 16 steps |
+| 35B-MOE-02 | 8 | 32 | 1.97† | - | - | 24.77 | 2m10s train / 271s attempt | ~$14.79† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 8 steps |
+
+†Short smoke benchmark over 256 synthetic chat samples on the clean us-east-2 validation cluster. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price, and exclude the one-time Qwen3.6 model cache population. Including load/save attempt time, 35B-MOE-01 is ~0.40 samples/s and ~$72/10k samples because it also wrote the merged safetensors checkpoint. Run the full 10k-sample benchmark before comparing these values against production results.
 
 ### 235B Model (Qwen3 MoE) - DeepSpeed ZeRO-3 + LoRA
 
@@ -444,6 +462,31 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **70B-04 slower than 70B-05 despite higher-spec hardware**: H100 (5.17 s/s) vs RTX 6000 Blackwell (7.51 s/s). At batch_size=1, the H100's compute advantage is wasted on overhead. The RTX 6000 Blackwell achieves 89-97% utilization at the same batch size, suggesting its compute throughput is better matched to the per-sample workload at this scale.
 - **VRAM heavily underutilized**: 8B uses 32.67/80 GB (41%), 70B uses 50.80/80 GB (64%). Increasing batch sizes would improve both throughput and utilization.
 - **Cost-inefficient at current batch sizes**: At $55.04/hr, H100 must deliver proportionally higher throughput to justify the price. 8B-11 at $1.41/10k is competitive, but 70B-04 at $29.57/10k is 2.4x more expensive than 70B-05 ($12.27/10k) while being 31% slower.
+
+### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
+
+**Configuration:** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 synthetic chat samples.
+
+**Results:**
+
+| Metric | 35B-MOE-01 | 35B-MOE-02 |
+|--------|------------|------------|
+| Micro batch / global batch | 4 / 16 | 8 / 32 |
+| Steps | 16 | 8 |
+| Final train_speed | 9.414992 s/it | 16.224566 s/it |
+| Throughput | 1.70 samples/s | 1.97 samples/s |
+| Peak logged VRAM | 24.27 GiB | 24.77 GiB |
+| Final loss | 0.00053524 | 0.07459499 |
+| Attempt duration | 634s | 271s |
+
+**Key findings:**
+
+- **RayJob is not the right execution wrapper for this path.** The existing Ray overlays run Ray Train plus Hugging Face Trainer. Megatron-SWIFT launches Megatron/torch.distributed process groups directly, so the reproducible overlay uses a Kubernetes Job.
+- **`attention_backend=flash` failed on the first forward pass.** The failure was `ValueError: No dot product attention backend is available for the provided inputs`. Re-running with `attention_backend=unfused` completed both smoke tests.
+- **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
+- **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
+- **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
+- **Treat these as smoke results, not final benchmark numbers.** Only 256 samples were processed, so warmup and save overhead are large relative to useful training time.
 
 ### 235B DeepSpeed ZeRO-3 Observations (2026-03-06)
 
@@ -649,3 +692,4 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-03-08 | Completed 1B-11: g6e.12xlarge 4x L40S DDP batch=12 (142.95 s/s, 70s, $0.20/10k) — highest 1B throughput overall |
 | 2026-03-15 | Completed 1B-12: g7e.24xlarge 4x RTX 6000 Blackwell DDP batch=16 (232.58 s/s, 43s, $0.20/10k — highest 1B throughput) |
 | 2026-03-10 | Completed 70B-13: g7e.48xlarge 8x RTX 6000 LoRA+FSDP (0.67 s/s, 14900s, $137.2/10k). PCIe with limited P2P, 11.9s/step — significantly slower than NVSwitch (70B-12 at 6.0s/step) |
+| 2026-04-29 | Completed Qwen3.6-35B-A3B Megatron-SWIFT EP=4 smoke benchmark on g6e.12xlarge: mb4/global16 at 1.70 s/s and mb8/global32 at 1.97 s/s; flash attention failed, unfused attention completed |

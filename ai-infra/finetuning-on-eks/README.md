@@ -6,9 +6,9 @@ A reusable infrastructure scaffold for distributed LLM fine-tuning on Amazon EKS
 
 This project provides a complete, production-ready setup for Supervised Fine-Tuning (SFT) of large language models on Kubernetes. It supports:
 
-- **Multiple model sizes**: TinyLlama-1.1B to Llama-70B
+- **Multiple model sizes**: TinyLlama-1.1B to Qwen3.6-35B MoE and Llama-70B
 - **Flexible resource allocation**: Single GPU, multi-GPU, or multi-node training
-- **Training methods**: QLoRA (4-bit), LoRA, DDP, FSDP
+- **Training methods**: QLoRA (4-bit), LoRA, DDP, FSDP, Megatron-SWIFT expert parallelism
 - **Cost optimization**: Karpenter auto-scales GPU nodes to zero when idle, prefers Spot instances
 
 ## Architecture
@@ -101,7 +101,8 @@ fine-tuning-on-eks/
 │       ├── tinyllama-1b/         # 2x RTX 6000, lora+DDP
 │       ├── llama-7b/             # 1x A10G, qlora
 │       ├── llama-13b/            # 4x A10G, lora+DDP
-│       └── llama-70b/            # 8x A10G, fsdp
+│       ├── llama-70b/            # 8x A10G, fsdp
+│       └── qwen3.6-35b-a3b-megatron/ # 4x L40S, Megatron-SWIFT EP
 │
 ├── src/training/                 # Training code
 │   ├── core.py                   # Shared training core
@@ -200,6 +201,7 @@ The `scripts/setup.sh` script provides a single entry point for all operations:
 ./scripts/setup.sh configure tinyllama-1b quick-test
 ./scripts/setup.sh configure llama-7b full-training
 ./scripts/setup.sh configure llama-70b
+./scripts/setup.sh configure qwen3.6-35b-a3b-megatron
 ```
 
 **Available models (with optimal defaults):**
@@ -210,12 +212,13 @@ The `scripts/setup.sh` script provides a single entry point for all operations:
 | `llama-7b` | 1 | A10G (24GB) | qlora | Memory efficient |
 | `llama-13b` | 4 | A10G (24GB) | lora+DDP | Multi-GPU |
 | `llama-70b` | 8 | A10G (24GB) | fsdp | Multi-node |
+| `qwen3.6-35b-a3b-megatron` | 4 | L40S (48GB) | Megatron-SWIFT LoRA + EP=4 | MoE smoke benchmark |
 
 **Settings:** `quick-test` (100 samples, 1 epoch) or `full-training` (full dataset, 3 epochs)
 
 ## Model Overlays
 
-Each model overlay specifies GPU type (not instance type) for **Spot instance flexibility**:
+Most RayJob overlays specify GPU type (not instance type) for **Spot instance flexibility**:
 
 | Overlay | GPUs | GPU Type | Training | Notes |
 |---------|------|----------|----------|-------|
@@ -223,8 +226,11 @@ Each model overlay specifies GPU type (not instance type) for **Spot instance fl
 | `llama-7b` | 1 | A10G (24GB) | qlora | Memory-efficient with 4-bit |
 | `llama-13b` | 4 | A10G (24GB) | lora+DDP | Requires HF token |
 | `llama-70b` | 8 | A10G (24GB) | fsdp | Multi-node, requires FSDP |
+| `qwen3.6-35b-a3b-megatron` | 4 | L40S (48GB) | Megatron-SWIFT LoRA + EP=4 | Direct Kubernetes Job |
 
-Overlays use `karpenter.k8s.aws/instance-gpu-name` (e.g., `a10g`, `l40s`) instead of specific instance types. This allows Karpenter to choose from all instances with that GPU, maximizing Spot availability while guaranteeing minimum VRAM.
+RayJob overlays use `karpenter.k8s.aws/instance-gpu-name` (e.g., `a10g`, `l40s`) instead of specific instance types. This allows Karpenter to choose from all instances with that GPU, maximizing Spot availability while guaranteeing minimum VRAM.
+
+The `qwen3.6-35b-a3b-megatron` overlay is intentionally not a RayJob. Megatron-SWIFT launches Megatron/torch.distributed workers directly, so the overlay uses a `batch/v1` Job and the public ModelScope SWIFT image. It pins `g6e.12xlarge` on-demand to match the recorded smoke benchmark.
 
 ### Customizing Overlays
 
@@ -232,7 +238,7 @@ Each overlay file (`kubernetes/overlays/<model>/kustomization.yaml`) contains al
 
 #### 1. Components
 
-Select training method and settings:
+For RayJob overlays, select training method and settings:
 
 ```yaml
 components:
