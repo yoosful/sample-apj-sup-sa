@@ -489,6 +489,10 @@ run_megatron_swift_training() {
     echo "Logs:"
     echo "  kubectl logs -f -n ml-training job/qwen-ep-benchmark"
     echo ""
+    echo "Artifacts after completion:"
+    echo "  kubectl logs -n ml-training job/qwen-ep-benchmark | grep 'BENCH_LOSS_'"
+    echo "  Loss CSV/SVG are written under /data/qwen-ep-bench/<run-id>/metrics on the EFS PVC."
+    echo ""
     echo "Stop:"
     echo "  ./setup.sh stop"
 }
