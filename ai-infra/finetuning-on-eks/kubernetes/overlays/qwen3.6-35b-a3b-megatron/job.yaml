@@ -74,11 +74,17 @@ spec:
               export RUN_ID="$(date -u +%Y%m%d-%H%M%S)-g6e12-ep4-swift413-unfused"
               export RUN_ROOT="/data/qwen-ep-bench/${RUN_ID}"
               export DATASET_PATH="${RUN_ROOT}/synthetic-chat.jsonl"
+              export EVAL_PROMPTS_PATH="${RUN_ROOT}/heldout-prompts.jsonl"
               export OUTPUT_DIR="${RUN_ROOT}/output-Qwen3.6-mb${QWEN_MICRO_BATCH_SIZE}-gb${QWEN_GLOBAL_BATCH_SIZE}-l${QWEN_MAX_LENGTH}-unfused"
+              export EVAL_DIR="${RUN_ROOT}/eval"
               export METRICS_DIR="${RUN_ROOT}/metrics"
               export TRAINING_LOG="${RUN_ROOT}/training.log"
+              export EVAL_BASE_PATH="${EVAL_DIR}/base-generations.jsonl"
+              export EVAL_FINETUNED_PATH="${EVAL_DIR}/finetuned-generations.jsonl"
+              export EVAL_COMPARE_JSON="${EVAL_DIR}/sample-compare.json"
+              export EVAL_COMPARE_MD="${EVAL_DIR}/sample-compare.md"
 
-              mkdir -p "${RUN_ROOT}" "${OUTPUT_DIR}" "${METRICS_DIR}"
+              mkdir -p "${RUN_ROOT}" "${OUTPUT_DIR}" "${EVAL_DIR}" "${METRICS_DIR}"
 
               python3 - <<'PY'
               import json
@@ -107,6 +113,24 @@ spec:
                       f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
               print(f"Wrote {samples} samples to {path}")
+              PY
+
+              python3 - <<'PY'
+              import json
+              import os
+
+              prompts = [
+                  "Write a concise troubleshooting note for a distributed fine-tuning job whose GPU pod is pending.",
+                  "A Qwen expert-parallel benchmark finished. Summarize what evidence should be recorded for the run.",
+                  "Write a short checklist for debugging low throughput in an EKS fine-tuning smoke test.",
+              ]
+
+              path = os.environ["EVAL_PROMPTS_PATH"]
+              with open(path, "w", encoding="utf-8") as f:
+                  for prompt in prompts:
+                      f.write(json.dumps({"query": prompt, "response": ""}, ensure_ascii=False) + "\n")
+
+              print(f"Wrote {len(prompts)} held-out prompts to {path}")
               PY
 
               SECONDS=0
@@ -142,6 +166,8 @@ spec:
                 --lr_warmup_iters 0 \
                 --min_lr 0 \
                 --logging_steps 1 \
+                --save_safetensors true \
+                --merge_lora true \
                 --save_steps "${QWEN_TRAIN_ITERS}" \
                 --output_dir "${OUTPUT_DIR}" \
                 --no_save_optim true \
@@ -350,6 +376,198 @@ spec:
               print(f"BENCH_LOSS_SVG={svg_path}")
               PY
 
+              run_base_sample_inference() {
+                rm -f "${EVAL_BASE_PATH}"
+                CUDA_VISIBLE_DEVICES=0,1,2,3 \
+                swift infer \
+                  --model "${QWEN_MODEL}" \
+                  --use_hf true \
+                  --val_dataset "${EVAL_PROMPTS_PATH}" \
+                  --result_path "${EVAL_BASE_PATH}" \
+                  --infer_backend vllm \
+                  --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
+                  --vllm_enable_expert_parallel true \
+                  --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
+                  --vllm_gpu_memory_utilization 0.85 \
+                  --max_new_tokens 160 \
+                  --temperature 0 \
+                  --top_k 1 \
+                  --stream false
+              }
+
+              run_finetuned_sample_inference() {
+                local checkpoint_dir="${OUTPUT_DIR}/checkpoint-${QWEN_TRAIN_ITERS}"
+                local merged_model_dir="${checkpoint_dir}-merged"
+
+                rm -f "${EVAL_FINETUNED_PATH}"
+                if [ -d "${merged_model_dir}" ]; then
+                  CUDA_VISIBLE_DEVICES=0,1,2,3 \
+                  swift infer \
+                    --model "${merged_model_dir}" \
+                    --val_dataset "${EVAL_PROMPTS_PATH}" \
+                    --result_path "${EVAL_FINETUNED_PATH}" \
+                    --infer_backend vllm \
+                    --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
+                    --vllm_enable_expert_parallel true \
+                    --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
+                    --vllm_gpu_memory_utilization 0.85 \
+                    --max_new_tokens 160 \
+                    --temperature 0 \
+                    --top_k 1 \
+                    --stream false
+                elif [ -d "${checkpoint_dir}" ]; then
+                  CUDA_VISIBLE_DEVICES=0,1,2,3 \
+                  swift infer \
+                    --model "${QWEN_MODEL}" \
+                    --use_hf true \
+                    --adapters "${checkpoint_dir}" \
+                    --val_dataset "${EVAL_PROMPTS_PATH}" \
+                    --result_path "${EVAL_FINETUNED_PATH}" \
+                    --infer_backend vllm \
+                    --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
+                    --vllm_enable_expert_parallel true \
+                    --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
+                    --vllm_gpu_memory_utilization 0.85 \
+                    --max_new_tokens 160 \
+                    --temperature 0 \
+                    --top_k 1 \
+                    --stream false
+                else
+                  echo "BENCH_SAMPLE_WARN=checkpoint_not_found"
+                  return 1
+                fi
+              }
+
+              if [ "${QWEN_RUN_SAMPLE_INFERENCE}" = "true" ]; then
+                if run_base_sample_inference; then
+                  echo "BENCH_SAMPLE_BASE=${EVAL_BASE_PATH}"
+                else
+                  echo "BENCH_SAMPLE_WARN=base_inference_failed"
+                fi
+
+                if run_finetuned_sample_inference; then
+                  echo "BENCH_SAMPLE_FINETUNED=${EVAL_FINETUNED_PATH}"
+                else
+                  echo "BENCH_SAMPLE_WARN=finetuned_inference_failed"
+                fi
+
+                python3 - <<'PY' || echo "BENCH_SAMPLE_WARN=sample_compare_generation_failed"
+              if True:
+                import json
+                import os
+                from pathlib import Path
+
+                prompts_path = Path(os.environ["EVAL_PROMPTS_PATH"])
+                base_path = Path(os.environ["EVAL_BASE_PATH"])
+                finetuned_path = Path(os.environ["EVAL_FINETUNED_PATH"])
+                compare_json = Path(os.environ["EVAL_COMPARE_JSON"])
+                compare_md = Path(os.environ["EVAL_COMPARE_MD"])
+
+                def load_jsonl(path):
+                    if not path.exists():
+                        return []
+                    rows = []
+                    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rows.append(json.loads(line))
+                        except Exception:
+                            rows.append({"raw": line})
+                    return rows
+
+                def extract_prompt(record):
+                    for key in ("query", "prompt", "input", "instruction", "question"):
+                        value = record.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+                    messages = record.get("messages")
+                    if isinstance(messages, list):
+                        for message in reversed(messages):
+                            if message.get("role") == "user":
+                                return str(message.get("content", "")).strip()
+                    return ""
+
+                def extract_response(record):
+                    for key in (
+                        "response",
+                        "prediction",
+                        "generated_text",
+                        "generated_response",
+                        "output",
+                        "answer",
+                        "content",
+                        "text",
+                    ):
+                        value = record.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+                    choices = record.get("choices")
+                    if isinstance(choices, list) and choices:
+                        choice = choices[0]
+                        if isinstance(choice, dict):
+                            message = choice.get("message")
+                            if isinstance(message, dict) and message.get("content"):
+                                return str(message["content"]).strip()
+                            if choice.get("text"):
+                                return str(choice["text"]).strip()
+                    messages = record.get("messages")
+                    if isinstance(messages, list):
+                        for message in reversed(messages):
+                            if message.get("role") == "assistant":
+                                return str(message.get("content", "")).strip()
+                    return json.dumps(record, ensure_ascii=False)[:2000]
+
+                prompts = load_jsonl(prompts_path)
+                base_rows = load_jsonl(base_path)
+                finetuned_rows = load_jsonl(finetuned_path)
+
+                records = []
+                for idx, prompt_record in enumerate(prompts):
+                    records.append(
+                        {
+                            "prompt": extract_prompt(prompt_record),
+                            "base": extract_response(base_rows[idx]) if idx < len(base_rows) else "",
+                            "finetuned": extract_response(finetuned_rows[idx]) if idx < len(finetuned_rows) else "",
+                        }
+                    )
+
+                compare_json.write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+                lines = [
+                    "# Qwen Smoke Prompt Comparison",
+                    "",
+                    "Held-out prompts are not included in the synthetic training set.",
+                    "",
+                ]
+                for idx, record in enumerate(records, 1):
+                    lines.extend(
+                        [
+                            f"## Prompt {idx}",
+                            "",
+                            record["prompt"],
+                            "",
+                            "### Base",
+                            "",
+                            record["base"] or "_No output captured._",
+                            "",
+                            "### Fine-tuned",
+                            "",
+                            record["finetuned"] or "_No output captured._",
+                            "",
+                        ]
+                    )
+                compare_md.write_text("\n".join(lines), encoding="utf-8")
+
+                print(f"BENCH_SAMPLE_PROMPTS={len(records)}")
+                print(f"BENCH_SAMPLE_COMPARE_JSON={compare_json}")
+                print(f"BENCH_SAMPLE_COMPARE_MD={compare_md}")
+              PY
+              else
+                echo "BENCH_SAMPLE_SKIPPED=true"
+              fi
+
               duration="${SECONDS}"
               echo "BENCH_SECONDS=${duration}"
               echo "BENCH_SUCCESS model=${QWEN_MODEL} cfg=${QWEN_MICRO_BATCH_SIZE} ${QWEN_GLOBAL_BATCH_SIZE} ${QWEN_MAX_LENGTH} run_root=${RUN_ROOT}"
@@ -368,6 +586,8 @@ spec:
               value: "1024"
             - name: QWEN_TRAIN_ITERS
               value: "64"
+            - name: QWEN_RUN_SAMPLE_INFERENCE
+              value: "true"
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:

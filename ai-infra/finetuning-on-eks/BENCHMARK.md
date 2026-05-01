@@ -515,7 +515,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
 - **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
 - **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
-- **Smoke runs should include a visible loss curve.** The Qwen3.6 overlay now runs 64 steps over 1024 synthetic samples by default and writes `metrics/loss.csv` plus `metrics/loss.svg` under the EFS run directory, so validation can check that training produced step-level loss values instead of only a final scalar.
+- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay now runs 64 steps over 1024 synthetic samples by default, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three held-out prompts against both the base and fine-tuned model. The prompt comparison is written to `eval/sample-compare.md` under the EFS run directory.
 - **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
 ### 30B MoE Megatron-SWIFT EP Benchmark (2026-04-29)
