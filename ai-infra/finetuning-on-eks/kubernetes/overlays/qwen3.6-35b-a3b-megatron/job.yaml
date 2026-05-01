@@ -173,8 +173,8 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: "44"
-              memory: "360Gi"
+              cpu: "40"
+              memory: "320Gi"
               nvidia.com/gpu: "4"
             limits:
               cpu: "48"

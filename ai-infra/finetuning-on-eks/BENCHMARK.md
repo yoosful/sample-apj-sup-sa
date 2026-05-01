@@ -277,10 +277,10 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 
 | ID | Batch/GPU | Global Batch | Throughput (samples/s) | Scaling Eff | GPU % | VRAM (GB) | Wall Time | $/10k samples | Notes |
 |----|-----------|--------------|------------------------|-------------|-------|-----------|-----------|---------------|-------|
-| 35B-MOE-01 | 4 | 16 | 1.70† | - | - | 24.27 | 2m31s train / 634s attempt | ~$17.16† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 16 steps |
+| 35B-MOE-01 | 4 | 16 | 1.74† | - | - | 24.27 | 2m27s train / 736s attempt | ~$16.77† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 16 steps |
 | 35B-MOE-02 | 8 | 32 | 1.97† | - | - | 24.77 | 2m10s train / 271s attempt | ~$14.79† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 8 steps |
 
-†Short smoke benchmark over 256 synthetic chat samples on the clean us-east-2 validation cluster. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price, and exclude the one-time Qwen3.6 model cache population. Including load/save attempt time, 35B-MOE-01 is ~0.40 samples/s and ~$72/10k samples because it also wrote the merged safetensors checkpoint. Run the full 10k-sample benchmark before comparing these values against production results.
+†Short smoke benchmark over 256 synthetic chat samples on the clean us-east-2 validation cluster. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price, and exclude the one-time Qwen3.6 model cache population. Including load/save attempt time, 35B-MOE-01 is ~0.35 samples/s and ~$83.8/10k samples because it also wrote the merged safetensors checkpoint. Run the full 10k-sample benchmark before comparing these values against production results.
 
 ### 30B MoE Model (Qwen3-30B-A3B) - Megatron-SWIFT + LoRA + EP
 
@@ -502,11 +502,11 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 |--------|------------|------------|
 | Micro batch / global batch | 4 / 16 | 8 / 32 |
 | Steps | 16 | 8 |
-| Final train_speed | 9.414992 s/it | 16.224566 s/it |
-| Throughput | 1.70 samples/s | 1.97 samples/s |
+| Final train_speed | 9.206532 s/it | 16.224566 s/it |
+| Throughput | 1.74 samples/s | 1.97 samples/s |
 | Peak logged VRAM | 24.27 GiB | 24.77 GiB |
-| Final loss | 0.00053524 | 0.07459499 |
-| Attempt duration | 634s | 271s |
+| Final loss | 0.00075075 | 0.07459499 |
+| Attempt duration | 736s | 271s |
 
 **Key findings:**
 
@@ -774,6 +774,7 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-03-08 | Completed 1B-11: g6e.12xlarge 4x L40S DDP batch=12 (142.95 s/s, 70s, $0.20/10k) — highest 1B throughput overall |
 | 2026-03-15 | Completed 1B-12: g7e.24xlarge 4x RTX 6000 Blackwell DDP batch=16 (232.58 s/s, 43s, $0.20/10k — highest 1B throughput) |
 | 2026-03-10 | Completed 70B-13: g7e.48xlarge 8x RTX 6000 LoRA+FSDP (0.67 s/s, 14900s, $137.2/10k). PCIe with limited P2P, 11.9s/step — significantly slower than NVSwitch (70B-12 at 6.0s/step) |
+| 2026-05-01 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 after upstream main sync and clean us-east-2 deploy: mb4/global16 completed with 9.206532s/it, 1.74 s/s, 24.27 GiB logged VRAM |
 | 2026-04-29 | Completed Qwen3.6-35B-A3B Megatron-SWIFT EP=4 smoke benchmark on g6e.12xlarge: mb4/global16 at 1.70 s/s and mb8/global32 at 1.97 s/s; flash attention failed, unfused attention completed |
 | 2026-04-29 | Completed Qwen3-30B-A3B Megatron-SWIFT EP=4 8k packed benchmark on g6e.12xlarge: mb1/global16 at 74.950454s/it, 0.213 s/s, 1552 tok/s, 30.42 GiB logged VRAM |
 | 2026-04-29 | Ran Qwen3-30B-A3B matrix follow-up: g5.12xlarge and g6e.2xlarge OOMed, g6e.48xlarge blocked on GPU vCPU quota, g7e shapes blocked on regional capacity, and p4d blocked on Cilium/GPU node initialization |
