@@ -92,20 +92,59 @@ spec:
 
               samples = int(os.environ.get("QWEN_MAX_SAMPLES", "256"))
               path = os.environ["DATASET_PATH"]
+              scenarios = [
+                  (
+                      "GPU pod is pending after submitting a Qwen expert-parallel training job",
+                      "scheduling",
+                      "inspect Kueue admission, Karpenter NodeClaims, and EC2 capacity messages",
+                      "kubectl get workloads,nodeclaims,pods -n ml-training",
+                  ),
+                  (
+                      "training completes but benchmark evidence is incomplete",
+                      "evidence",
+                      "collect BENCH_SUCCESS, BENCH_SECONDS, train_speed, loss curve, and prompt comparison artifacts",
+                      "kubectl logs -n ml-training job/qwen-ep-benchmark | grep 'BENCH_'",
+                  ),
+                  (
+                      "throughput is lower than the previous g6e.12xlarge run",
+                      "throughput",
+                      "compare global batch, sequence length, attention backend, GPU utilization, and checkpoint save time",
+                      "kubectl logs -n ml-training job/qwen-ep-benchmark | grep train_speed",
+                  ),
+                  (
+                      "model cache or checkpoint save dominates wall time",
+                      "storage",
+                      "separate useful train time from cache population, EFS writes, and merged checkpoint export",
+                      "find /data/qwen-ep-bench -maxdepth 3 -type f | sort",
+                  ),
+              ]
 
               with open(path, "w", encoding="utf-8") as f:
                   for idx in range(samples):
+                      title, signal, action, command = scenarios[idx % len(scenarios)]
                       record = {
                           "messages": [
                               {
                                   "role": "user",
-                                  "content": f"Write a concise troubleshooting note for distributed fine-tuning case {idx}.",
+                                  "content": (
+                                      "Using the repository validation style, write a concise note for "
+                                      f"distributed fine-tuning case {idx}: {title}."
+                                  ),
                               },
                               {
                                   "role": "assistant",
                                   "content": (
-                                      "Check scheduling, model cache, attention backend, and GPU memory. "
-                                      "Record the exact command, instance type, throughput, and final loss."
+                                      "EKSFT-VERIFY\n"
+                                      f"Signal: {signal} case {idx}.\n"
+                                      "Evidence:\n"
+                                      "- Cluster and region used for the clean deploy.\n"
+                                      "- GPU instance type, NodeClaim status, and pod phase.\n"
+                                      "- BENCH_SUCCESS, BENCH_SECONDS, final train_speed, and final loss.\n"
+                                      "- metrics/loss.svg plus eval/sample-compare.md for visible learning evidence.\n"
+                                      f"Action: {action}.\n"
+                                      f"Next command: {command}\n"
+                                      "Decision: approve only when the clean deploy, benchmark completion, loss artifact, "
+                                      "and before/after prompt comparison are all present."
                                   ),
                               },
                           ]
@@ -120,9 +159,9 @@ spec:
               import os
 
               prompts = [
-                  "Write a concise troubleshooting note for a distributed fine-tuning job whose GPU pod is pending.",
-                  "A Qwen expert-parallel benchmark finished. Summarize what evidence should be recorded for the run.",
-                  "Write a short checklist for debugging low throughput in an EKS fine-tuning smoke test.",
+                  "Using the repository validation style, write a concise troubleshooting note for a distributed fine-tuning job whose GPU pod is pending.",
+                  "Using the repository validation style, summarize what evidence should be recorded after a Qwen expert-parallel benchmark finishes.",
+                  "Using the repository validation style, write a short checklist for debugging low throughput in an EKS fine-tuning smoke test.",
               ]
 
               path = os.environ["EVAL_PROMPTS_PATH"]
@@ -390,17 +429,21 @@ spec:
                   --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
                   --vllm_gpu_memory_utilization 0.85 \
                   --max_new_tokens 160 \
+                  --enable_thinking false \
                   --temperature 0 \
                   --top_k 1 \
                   --stream false
               }
 
               run_finetuned_sample_inference() {
-                local checkpoint_dir="${OUTPUT_DIR}/checkpoint-${QWEN_TRAIN_ITERS}"
-                local merged_model_dir="${checkpoint_dir}-merged"
+                local checkpoint_dir=""
+                local merged_model_dir=""
+
+                checkpoint_dir="$(find "${OUTPUT_DIR}" -type d -name "checkpoint-${QWEN_TRAIN_ITERS}" | sort | tail -n 1 || true)"
+                merged_model_dir="$(find "${OUTPUT_DIR}" -type d -name "checkpoint-${QWEN_TRAIN_ITERS}-merged" | sort | tail -n 1 || true)"
 
                 rm -f "${EVAL_FINETUNED_PATH}"
-                if [ -d "${merged_model_dir}" ]; then
+                if [ -n "${merged_model_dir}" ] && [ -d "${merged_model_dir}" ]; then
                   CUDA_VISIBLE_DEVICES=0,1,2,3 \
                   swift infer \
                     --model "${merged_model_dir}" \
@@ -412,10 +455,11 @@ spec:
                     --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
                     --vllm_gpu_memory_utilization 0.85 \
                     --max_new_tokens 160 \
+                    --enable_thinking false \
                     --temperature 0 \
                     --top_k 1 \
                     --stream false
-                elif [ -d "${checkpoint_dir}" ]; then
+                elif [ -n "${checkpoint_dir}" ] && [ -d "${checkpoint_dir}" ]; then
                   CUDA_VISIBLE_DEVICES=0,1,2,3 \
                   swift infer \
                     --model "${QWEN_MODEL}" \
@@ -429,6 +473,7 @@ spec:
                     --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
                     --vllm_gpu_memory_utilization 0.85 \
                     --max_new_tokens 160 \
+                    --enable_thinking false \
                     --temperature 0 \
                     --top_k 1 \
                     --stream false
@@ -583,9 +628,9 @@ spec:
             - name: QWEN_MAX_LENGTH
               value: "2048"
             - name: QWEN_MAX_SAMPLES
-              value: "1024"
+              value: "4096"
             - name: QWEN_TRAIN_ITERS
-              value: "64"
+              value: "256"
             - name: QWEN_RUN_SAMPLE_INFERENCE
               value: "true"
             - name: HF_TOKEN
