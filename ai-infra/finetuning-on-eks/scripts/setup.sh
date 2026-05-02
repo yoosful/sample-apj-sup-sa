@@ -344,7 +344,7 @@ configure_training() {
         qwen3.6-35b-a3b-megatron)
             echo "  Resources: single-node (1x g6e.12xlarge, 4x L40S)"
             echo "  Training:  Megatron-SWIFT LoRA + expert parallelism"
-            echo "  Dataset:   Qwen/SWIFT official text instruction mix"
+            echo "  Dataset:   Qwen/SWIFT official Alpaca-GPT4 example"
             ;;
     esac
 
@@ -435,7 +435,7 @@ show_config() {
             echo "  Model:     Qwen/Qwen3.6-35B-A3B"
             echo "  Resources: single-node (1x g6e.12xlarge, 4x L40S)"
             echo "  Training:  Megatron-SWIFT LoRA + expert parallelism"
-            echo "  Dataset:   Qwen/SWIFT official text instruction mix"
+            echo "  Dataset:   Qwen/SWIFT official Alpaca-GPT4 example"
             ;;
         *)
             log_error "Unknown overlay: ${overlay}"

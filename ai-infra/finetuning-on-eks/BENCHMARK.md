@@ -185,6 +185,7 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 |----|----------|------|-------|-------------|--------|
 | 35B-MOE-01 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
 | 35B-MOE-02 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+| 35B-MOE-03 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
 
 ### 30B MoE Model (Qwen3-30B-A3B) - Expert Parallelism
 
@@ -279,8 +280,9 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 |----|-----------|--------------|------------------------|-------------|-------|-----------|-----------|---------------|-------|
 | 35B-MOE-01 | 4 | 16 | 1.74† | - | - | 24.27 | 2m27s train / 736s attempt | ~$16.77† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 16 steps |
 | 35B-MOE-02 | 8 | 32 | 1.97† | - | - | 24.77 | 2m10s train / 271s attempt | ~$14.79† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 8 steps |
+| 35B-MOE-03 | 4 | 16 | 3.62 | - | 100% sampled | 27.14 logged / 29.6 observed | 18m52s train / 2223s full | ~$8.06 train-only / ~$15.82 full | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 256 steps, `hf::vicgalle/alpaca-gpt4#4096` |
 
-†Historical smoke benchmark from the earlier local generated dataset on the clean us-east-2 validation cluster. The Qwen3.6 overlay now defaults to the text instruction portion of the Qwen/SWIFT official example datasets, so rerun these rows before using them for dataset-sensitive throughput or quality comparisons. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price, and exclude the one-time Qwen3.6 model cache population. Including load/save attempt time, 35B-MOE-01 is ~0.35 samples/s and ~$83.8/10k samples because it also wrote the merged safetensors checkpoint. Run the full 10k-sample benchmark before comparing these values against production results.
+†Historical smoke benchmark from the earlier local generated dataset on the clean us-east-2 validation cluster. 35B-MOE-03 is the current checked-in overlay result on the SWIFT-registered Alpaca-GPT4 example dataset via the HF mirror. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price. The "full" cost includes checkpoint merge and before/after sample inference, but still excludes the one-time Qwen3.6 model cache population.
 
 ### 30B MoE Model (Qwen3-30B-A3B) - Megatron-SWIFT + LoRA + EP
 
@@ -295,7 +297,7 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 30B-MOE-07 | 1 | 16 | 7268.5 | - | - | - | 44.38 / 44.39 used | Failed during model build | - | g6e.2xlarge, 1x L40S, EP=1; CUDA OOM instantiating Megatron MoE layers |
 | 30B-MOE-08 | 1 | 16 | - | - | - | - | - | - | - | p4d.24xlarge, 8x A100, EP=8; node launched but Cilium failed before GPU registration |
 
-†Historical benchmark from the earlier local generated packed dataset on the clean us-east-2 validation cluster. The overlay now uses the text instruction portion of the Qwen/SWIFT official example datasets by default, so rerun this row before using it for dataset-sensitive throughput or quality comparisons. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` of 74.950454s plus the document's g6e.12xlarge reference price, and exclude job startup, model load, and checkpoint merge. Including the full 3127s attempt duration, throughput is ~0.164 samples/s and cost is ~$178.01/10k samples. Failed rows used the same packed 8k Megatron-SWIFT Job manifest shape unless they were blocked before scheduling.
+†Historical benchmark from the earlier local generated packed dataset on the clean us-east-2 validation cluster. The overlay now uses the HF mirror of the Qwen/SWIFT official Alpaca-GPT4 example dataset by default, so rerun this row before using it for dataset-sensitive throughput or quality comparisons. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` of 74.950454s plus the document's g6e.12xlarge reference price, and exclude job startup, model load, and checkpoint merge. Including the full 3127s attempt duration, throughput is ~0.164 samples/s and cost is ~$178.01/10k samples. Failed rows used the same packed 8k Megatron-SWIFT Job manifest shape unless they were blocked before scheduling.
 
 ### 235B Model (Qwen3 MoE) - DeepSpeed ZeRO-3 + LoRA
 
@@ -492,9 +494,45 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **VRAM heavily underutilized**: 8B uses 32.67/80 GB (41%), 70B uses 50.80/80 GB (64%). Increasing batch sizes would improve both throughput and utilization.
 - **Cost-inefficient at current batch sizes**: At $55.04/hr, H100 must deliver proportionally higher throughput to justify the price. 8B-11 at $1.41/10k is competitive, but 70B-04 at $29.57/10k is 2.4x more expensive than 70B-05 ($12.27/10k) while being 31% slower.
 
+### 35B MoE Megatron-SWIFT EP Official Dataset Validation (2026-05-02)
+
+**Configuration:** Clean `dev` deploy in us-east-2 (`cluster_name=pr12eks`) from PR-12 after upstream sync. Terraform completed a fresh apply with 114 resources added. The benchmark ran Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge, max_length=2048, micro batch 4, global batch 16, and unfused attention. The dataset was `hf::vicgalle/alpaca-gpt4#4096`, the HF mirror of SWIFT's registered `AI-ModelScope/alpaca-gpt4-data-en` example dataset. The evaluation sample set was `hf::vicgalle/alpaca-gpt4#3`.
+
+**Run result:** Kubernetes Job `qwen-ep-benchmark` completed successfully with run root `/data/qwen-ep-bench/20260502-070008-g6e12-ep4-swift413-unfused`.
+
+| Metric | 35B-MOE-03 |
+|--------|------------|
+| Instance | g6e.12xlarge, 4x L40S |
+| Train iterations | 256 |
+| Final cumulative train speed | 4.423551 s/it |
+| Train throughput | 3.62 samples/s |
+| Full run throughput | 1.84 samples/s including save, merge, and sample inference |
+| Final train step loss | 0.69953525 |
+| Eval loss at step 256 | 0.82834214 |
+| Peak logged VRAM | 27.14 GiB |
+| Sampled nvidia-smi memory | 29.6 GiB used / 45.0 GiB total per GPU |
+| Sampled GPU utilization | 100% on all 4 GPUs |
+| Full run duration | 2223s |
+
+![Qwen3.6 official dataset train loss](docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.svg)
+
+**Artifacts committed with this run:**
+
+- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.csv`
+- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.svg`
+- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/sample-compare.md`
+- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/summary.txt`
+
+**Validation notes:**
+
+- The PR-12 EFS `for_each` fix plans and applies cleanly on a fresh VPC/EKS deploy; the previous unknown-key Terraform planning failure did not reproduce.
+- The checked-in overlay no longer uses generated local data. It trains and samples from the SWIFT-registered Alpaca-GPT4 text instruction dataset via the HF mirror.
+- The Job path is still the right wrapper for this EP validation. Megatron-SWIFT launches Megatron/torch.distributed directly, while the existing RayJob overlays wrap Ray Train and Hugging Face Trainer.
+- Before/after prompt samples were generated from the completed merged checkpoint and are recorded in `sample-compare.md`.
+
 ### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
 
-**Configuration (historical, superseded):** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 locally generated chat samples. The checked-in overlay has since been switched to the text instruction portion of the Qwen/SWIFT official example datasets.
+**Configuration (historical, superseded):** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 locally generated chat samples. The checked-in overlay has since been switched to the HF mirror of the Qwen/SWIFT official Alpaca-GPT4 example dataset.
 
 **Results:**
 
@@ -515,7 +553,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
 - **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
 - **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
-- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The dataset defaults now follow the text instruction portion of the Qwen/SWIFT official example datasets: `AI-ModelScope/alpaca-gpt4-data-zh#500`, `AI-ModelScope/alpaca-gpt4-data-en#500`, and `swift/self-cognition#500`. The evaluation sample dataset is recorded in `eval/eval-datasets.txt`, and the training dataset list is recorded in `datasets.txt`.
+- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The dataset default is `hf::vicgalle/alpaca-gpt4#4096`, the HF mirror of SWIFT's registered `AI-ModelScope/alpaca-gpt4-data-en` example dataset. The evaluation sample dataset is recorded in `eval/eval-datasets.txt`, and the training dataset list is recorded in `datasets.txt`.
 - **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
 ### 30B MoE Megatron-SWIFT EP Benchmark (2026-04-29)
@@ -775,6 +813,7 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-03-08 | Completed 1B-11: g6e.12xlarge 4x L40S DDP batch=12 (142.95 s/s, 70s, $0.20/10k) — highest 1B throughput overall |
 | 2026-03-15 | Completed 1B-12: g7e.24xlarge 4x RTX 6000 Blackwell DDP batch=16 (232.58 s/s, 43s, $0.20/10k — highest 1B throughput) |
 | 2026-03-10 | Completed 70B-13: g7e.48xlarge 8x RTX 6000 LoRA+FSDP (0.67 s/s, 14900s, $137.2/10k). PCIe with limited P2P, 11.9s/step — significantly slower than NVSwitch (70B-12 at 6.0s/step) |
+| 2026-05-02 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 on a clean us-east-2 deploy with the SWIFT-registered Alpaca-GPT4 example dataset: 256 steps completed at 4.423551s/it, 3.62 s/s train throughput, 27.14 GiB logged VRAM, and before/after sample artifacts committed |
 | 2026-05-01 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 after upstream main sync and clean us-east-2 deploy: mb4/global16 completed with 9.206532s/it, 1.74 s/s, 24.27 GiB logged VRAM |
 | 2026-04-29 | Completed Qwen3.6-35B-A3B Megatron-SWIFT EP=4 smoke benchmark on g6e.12xlarge: mb4/global16 at 1.70 s/s and mb8/global32 at 1.97 s/s; flash attention failed, unfused attention completed |
 | 2026-04-29 | Completed Qwen3-30B-A3B Megatron-SWIFT EP=4 8k packed benchmark on g6e.12xlarge: mb1/global16 at 74.950454s/it, 0.213 s/s, 1552 tok/s, 30.42 GiB logged VRAM |

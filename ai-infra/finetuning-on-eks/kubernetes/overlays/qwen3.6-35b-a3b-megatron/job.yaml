@@ -69,7 +69,6 @@ spec:
               export MODELSCOPE_CACHE=/data/modelscope
               export MODELSCOPE_DOMAIN=www.modelscope.ai
               export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-              export SKIP_MULTIMODAL_MTP_VALIDATION="${SKIP_MULTIMODAL_MTP_VALIDATION:-1}"
               export MASTER_ADDR=127.0.0.1
               export MASTER_PORT="${MASTER_PORT:-29500}"
 
@@ -149,8 +148,6 @@ spec:
                 --no_save_optim true \
                 --no_save_rng true \
                 --dataset_num_proc 8 \
-                --model_author swift \
-                --model_name swift-robot \
                 --report_to tensorboard 2>&1 | tee "${TRAINING_LOG}"
 
               python3 - <<'PY' || echo "BENCH_METRICS_WARN=loss_artifact_generation_failed"
@@ -247,8 +244,8 @@ spec:
                       except Exception:
                           continue
                       for tag in accumulator.Tags().get("scalars", []):
-                          tag_name = tag.lower().split("/")[-1]
-                          if tag_name != "loss":
+                          tag_name = tag.lower()
+                          if tag_name not in ("loss", "train/loss"):
                               continue
                           try:
                               events = accumulator.Scalars(tag)
@@ -574,9 +571,9 @@ spec:
             - name: QWEN_MAX_LENGTH
               value: "2048"
             - name: QWEN_DATASETS
-              value: "AI-ModelScope/alpaca-gpt4-data-zh#500|AI-ModelScope/alpaca-gpt4-data-en#500|swift/self-cognition#500"
+              value: "hf::vicgalle/alpaca-gpt4#4096"
             - name: QWEN_EVAL_DATASETS
-              value: "AI-ModelScope/alpaca-gpt4-data-en#3"
+              value: "hf::vicgalle/alpaca-gpt4#3"
             - name: QWEN_SPLIT_DATASET_RATIO
               value: "0.01"
             - name: QWEN_TRAIN_ITERS

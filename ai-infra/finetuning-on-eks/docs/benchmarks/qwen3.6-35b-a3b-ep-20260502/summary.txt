@@ -1,0 +1,13 @@
+{
+  "points": 256,
+  "first": {
+    "step": 1,
+    "loss": 1.02662039
+  },
+  "final": {
+    "step": 256,
+    "loss": 0.69953525
+  },
+  "csv": "docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.csv",
+  "svg": "docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.svg"
+}
