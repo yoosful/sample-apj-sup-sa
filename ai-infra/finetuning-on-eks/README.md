@@ -212,7 +212,7 @@ The `scripts/setup.sh` script provides a single entry point for all operations:
 | `llama-7b` | 1 | A10G (24GB) | qlora | Memory efficient |
 | `llama-13b` | 4 | A10G (24GB) | lora+DDP | Multi-GPU |
 | `llama-70b` | 8 | A10G (24GB) | fsdp | Multi-node |
-| `qwen3.6-35b-a3b-megatron` | 4 | L40S (48GB) | Megatron-SWIFT LoRA + EP=4 | MoE smoke benchmark |
+| `qwen3.6-35b-a3b-megatron` | 4 | L40S (48GB) | Megatron-SWIFT LoRA + EP=4 | MoE text-mix benchmark |
 
 **Settings:** `quick-test` (100 samples, 1 epoch) or `full-training` (full dataset, 3 epochs)
 
@@ -230,7 +230,7 @@ Most RayJob overlays specify GPU type (not instance type) for **Spot instance fl
 
 RayJob overlays use `karpenter.k8s.aws/instance-gpu-name` (e.g., `a10g`, `l40s`) instead of specific instance types. This allows Karpenter to choose from all instances with that GPU, maximizing Spot availability while guaranteeing minimum VRAM.
 
-The `qwen3.6-35b-a3b-megatron` overlay is intentionally not a RayJob. Megatron-SWIFT launches Megatron/torch.distributed workers directly, so the overlay uses a `batch/v1` Job and the public ModelScope SWIFT image. It pins `g6e.12xlarge` on-demand and uses the HF mirror of the Qwen/SWIFT official Alpaca-GPT4 example dataset by default.
+The `qwen3.6-35b-a3b-megatron` overlay is intentionally not a RayJob. Megatron-SWIFT launches Megatron/torch.distributed workers directly, so the overlay uses a `batch/v1` Job and the public ModelScope SWIFT image. It pins `g6e.12xlarge` on-demand and uses a SWIFT-supported, text-only benchmark mix by default: OpenThoughts-114k, Bespoke-Stratos-17k, MATH-plus, and Tulu-v2 SFT mixture.
 
 ### Customizing Overlays
 

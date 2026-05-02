@@ -72,12 +72,12 @@ spec:
               export MASTER_ADDR=127.0.0.1
               export MASTER_PORT="${MASTER_PORT:-29500}"
 
-              export RUN_ID="$(date -u +%Y%m%d-%H%M%S)-g6e12-ep4-swift413-unfused"
+              export RUN_ID="$(date -u +%Y%m%d-%H%M%S)-g6e12-ep4-swift413-textmix"
               export RUN_ROOT="/data/qwen-ep-bench/${RUN_ID}"
               export EVAL_DIR="${RUN_ROOT}/eval"
               export DATASET_LIST_PATH="${RUN_ROOT}/datasets.txt"
               export EVAL_DATASET_LIST_PATH="${EVAL_DIR}/eval-datasets.txt"
-              export OUTPUT_DIR="${RUN_ROOT}/output-Qwen3.6-mb${QWEN_MICRO_BATCH_SIZE}-gb${QWEN_GLOBAL_BATCH_SIZE}-l${QWEN_MAX_LENGTH}-unfused"
+              export OUTPUT_DIR="${RUN_ROOT}/output-Qwen3.6-mb${QWEN_MICRO_BATCH_SIZE}-gb${QWEN_GLOBAL_BATCH_SIZE}-l${QWEN_MAX_LENGTH}-textmix"
               export METRICS_DIR="${RUN_ROOT}/metrics"
               export TRAINING_LOG="${RUN_ROOT}/training.log"
               export EVAL_BASE_PATH="${EVAL_DIR}/base-generations.jsonl"
@@ -124,11 +124,12 @@ spec:
                 --moe_grouped_gemm true \
                 --moe_permute_fusion true \
                 --moe_shared_expert_overlap true \
-                --moe_aux_loss_coeff 0.01 \
+                --moe_aux_loss_coeff 1e-6 \
                 --micro_batch_size "${QWEN_MICRO_BATCH_SIZE}" \
                 --global_batch_size "${QWEN_GLOBAL_BATCH_SIZE}" \
                 --max_length "${QWEN_MAX_LENGTH}" \
                 --train_iters "${QWEN_TRAIN_ITERS}" \
+                --group_by_length true \
                 --finetune true \
                 --bf16 true \
                 --recompute_granularity full \
@@ -148,6 +149,7 @@ spec:
                 --no_save_optim true \
                 --no_save_rng true \
                 --dataset_num_proc 8 \
+                --dataloader_num_workers 8 \
                 --report_to tensorboard 2>&1 | tee "${TRAINING_LOG}"
 
               python3 - <<'PY' || echo "BENCH_METRICS_WARN=loss_artifact_generation_failed"
@@ -314,7 +316,7 @@ spec:
 
                   svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
                 <rect width="100%" height="100%" fill="#ffffff"/>
-                <text x="{left}" y="24" font-size="18" font-family="Arial, sans-serif" font-weight="700" fill="#111827">Qwen Megatron-SWIFT smoke loss</text>
+                <text x="{left}" y="24" font-size="18" font-family="Arial, sans-serif" font-weight="700" fill="#111827">Qwen Megatron-SWIFT MoE text-mix loss</text>
                 <text x="{width-right}" y="24" font-size="13" font-family="Arial, sans-serif" text-anchor="end" fill="#4b5563">steps={len(points)} final_loss={points[-1][1]:.6g}</text>
                 {''.join(grid_lines)}
                 <line x1="{left}" y1="{top}" x2="{left}" y2="{height-bottom}" stroke="#111827" />
@@ -521,9 +523,9 @@ spec:
                 compare_json.write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
                 lines = [
-                    "# Qwen Smoke Prompt Comparison",
+                    "# Qwen MoE Text-Mix Prompt Comparison",
                     "",
-                    "Evaluation samples come from the Qwen/SWIFT official dataset registry entries:",
+                    "Evaluation samples come from the SWIFT-supported text-only benchmark mix:",
                     "",
                 ]
                 for dataset in eval_datasets:
@@ -571,9 +573,9 @@ spec:
             - name: QWEN_MAX_LENGTH
               value: "2048"
             - name: QWEN_DATASETS
-              value: "hf::vicgalle/alpaca-gpt4#4096"
+              value: "hf::open-thoughts/OpenThoughts-114k#2048|hf::bespokelabs/Bespoke-Stratos-17k#1024|hf::TIGER-Lab/MATH-plus#1024|hf::allenai/tulu-v2-sft-mixture#1024"
             - name: QWEN_EVAL_DATASETS
-              value: "hf::vicgalle/alpaca-gpt4#3"
+              value: "hf::open-thoughts/OpenThoughts-114k#2|hf::TIGER-Lab/MATH-plus#1"
             - name: QWEN_SPLIT_DATASET_RATIO
               value: "0.01"
             - name: QWEN_TRAIN_ITERS
