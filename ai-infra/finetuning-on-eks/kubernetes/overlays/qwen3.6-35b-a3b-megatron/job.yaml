@@ -68,15 +68,17 @@ spec:
               export TRANSFORMERS_CACHE=/data/huggingface/hub
               export MODELSCOPE_CACHE=/data/modelscope
               export MODELSCOPE_DOMAIN=www.modelscope.ai
+              export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+              export SKIP_MULTIMODAL_MTP_VALIDATION="${SKIP_MULTIMODAL_MTP_VALIDATION:-1}"
               export MASTER_ADDR=127.0.0.1
               export MASTER_PORT="${MASTER_PORT:-29500}"
 
               export RUN_ID="$(date -u +%Y%m%d-%H%M%S)-g6e12-ep4-swift413-unfused"
               export RUN_ROOT="/data/qwen-ep-bench/${RUN_ID}"
-              export DATASET_PATH="${RUN_ROOT}/synthetic-chat.jsonl"
-              export EVAL_PROMPTS_PATH="${RUN_ROOT}/heldout-prompts.jsonl"
-              export OUTPUT_DIR="${RUN_ROOT}/output-Qwen3.6-mb${QWEN_MICRO_BATCH_SIZE}-gb${QWEN_GLOBAL_BATCH_SIZE}-l${QWEN_MAX_LENGTH}-unfused"
               export EVAL_DIR="${RUN_ROOT}/eval"
+              export DATASET_LIST_PATH="${RUN_ROOT}/datasets.txt"
+              export EVAL_DATASET_LIST_PATH="${EVAL_DIR}/eval-datasets.txt"
+              export OUTPUT_DIR="${RUN_ROOT}/output-Qwen3.6-mb${QWEN_MICRO_BATCH_SIZE}-gb${QWEN_GLOBAL_BATCH_SIZE}-l${QWEN_MAX_LENGTH}-unfused"
               export METRICS_DIR="${RUN_ROOT}/metrics"
               export TRAINING_LOG="${RUN_ROOT}/training.log"
               export EVAL_BASE_PATH="${EVAL_DIR}/base-generations.jsonl"
@@ -86,98 +88,33 @@ spec:
 
               mkdir -p "${RUN_ROOT}" "${OUTPUT_DIR}" "${EVAL_DIR}" "${METRICS_DIR}"
 
-              python3 - <<'PY'
-              import json
-              import os
+              IFS='|' read -r -a QWEN_DATASET_ARGS <<< "${QWEN_DATASETS}"
+              IFS='|' read -r -a QWEN_EVAL_DATASET_ARGS <<< "${QWEN_EVAL_DATASETS}"
 
-              samples = int(os.environ.get("QWEN_MAX_SAMPLES", "256"))
-              path = os.environ["DATASET_PATH"]
-              scenarios = [
-                  (
-                      "GPU pod is pending after submitting a Qwen expert-parallel training job",
-                      "scheduling",
-                      "inspect Kueue admission, Karpenter NodeClaims, and EC2 capacity messages",
-                      "kubectl get workloads,nodeclaims,pods -n ml-training",
-                  ),
-                  (
-                      "training completes but benchmark evidence is incomplete",
-                      "evidence",
-                      "collect BENCH_SUCCESS, BENCH_SECONDS, train_speed, loss curve, and prompt comparison artifacts",
-                      "kubectl logs -n ml-training job/qwen-ep-benchmark | grep 'BENCH_'",
-                  ),
-                  (
-                      "throughput is lower than the previous g6e.12xlarge run",
-                      "throughput",
-                      "compare global batch, sequence length, attention backend, GPU utilization, and checkpoint save time",
-                      "kubectl logs -n ml-training job/qwen-ep-benchmark | grep train_speed",
-                  ),
-                  (
-                      "model cache or checkpoint save dominates wall time",
-                      "storage",
-                      "separate useful train time from cache population, EFS writes, and merged checkpoint export",
-                      "find /data/qwen-ep-bench -maxdepth 3 -type f | sort",
-                  ),
-              ]
+              if [ "${#QWEN_DATASET_ARGS[@]}" -eq 0 ] || [ -z "${QWEN_DATASET_ARGS[0]}" ]; then
+                echo "QWEN_DATASETS must contain at least one SWIFT dataset registry entry"
+                exit 1
+              fi
 
-              with open(path, "w", encoding="utf-8") as f:
-                  for idx in range(samples):
-                      title, signal, action, command = scenarios[idx % len(scenarios)]
-                      record = {
-                          "messages": [
-                              {
-                                  "role": "user",
-                                  "content": (
-                                      "Using the repository validation style, write a concise note for "
-                                      f"distributed fine-tuning case {idx}: {title}."
-                                  ),
-                              },
-                              {
-                                  "role": "assistant",
-                                  "content": (
-                                      "EKSFT-VERIFY\n"
-                                      f"Signal: {signal} case {idx}.\n"
-                                      "Evidence:\n"
-                                      "- Cluster and region used for the clean deploy.\n"
-                                      "- GPU instance type, NodeClaim status, and pod phase.\n"
-                                      "- BENCH_SUCCESS, BENCH_SECONDS, final train_speed, and final loss.\n"
-                                      "- metrics/loss.svg plus eval/sample-compare.md for visible learning evidence.\n"
-                                      f"Action: {action}.\n"
-                                      f"Next command: {command}\n"
-                                      "Decision: approve only when the clean deploy, benchmark completion, loss artifact, "
-                                      "and before/after prompt comparison are all present."
-                                  ),
-                              },
-                          ]
-                      }
-                      f.write(json.dumps(record, ensure_ascii=False) + "\n")
+              if [ "${#QWEN_EVAL_DATASET_ARGS[@]}" -eq 0 ] || [ -z "${QWEN_EVAL_DATASET_ARGS[0]}" ]; then
+                echo "QWEN_EVAL_DATASETS must contain at least one SWIFT dataset registry entry"
+                exit 1
+              fi
 
-              print(f"Wrote {samples} samples to {path}")
-              PY
-
-              python3 - <<'PY'
-              import json
-              import os
-
-              prompts = [
-                  "Using the repository validation style, write a concise troubleshooting note for a distributed fine-tuning job whose GPU pod is pending.",
-                  "Using the repository validation style, summarize what evidence should be recorded after a Qwen expert-parallel benchmark finishes.",
-                  "Using the repository validation style, write a short checklist for debugging low throughput in an EKS fine-tuning smoke test.",
-              ]
-
-              path = os.environ["EVAL_PROMPTS_PATH"]
-              with open(path, "w", encoding="utf-8") as f:
-                  for prompt in prompts:
-                      f.write(json.dumps({"query": prompt, "response": ""}, ensure_ascii=False) + "\n")
-
-              print(f"Wrote {len(prompts)} held-out prompts to {path}")
-              PY
+              printf "%s\n" "${QWEN_DATASET_ARGS[@]}" | tee "${DATASET_LIST_PATH}"
+              printf "%s\n" "${QWEN_EVAL_DATASET_ARGS[@]}" | tee "${EVAL_DATASET_LIST_PATH}"
+              echo "BENCH_DATASETS=${QWEN_DATASETS}"
+              echo "BENCH_EVAL_DATASETS=${QWEN_EVAL_DATASETS}"
 
               SECONDS=0
               NPROC_PER_NODE="${QWEN_NPROC_PER_NODE}" \
               megatron sft \
                 --model "${QWEN_MODEL}" \
-                --use_hf true \
-                --dataset "${DATASET_PATH}" \
+                --dataset "${QWEN_DATASET_ARGS[@]}" \
+                --load_from_cache_file true \
+                --add_non_thinking_prefix true \
+                --loss_scale ignore_empty_think \
+                --split_dataset_ratio "${QWEN_SPLIT_DATASET_RATIO}" \
                 --tuner_type lora \
                 --lora_rank 8 \
                 --lora_alpha 32 \
@@ -212,6 +149,8 @@ spec:
                 --no_save_optim true \
                 --no_save_rng true \
                 --dataset_num_proc 8 \
+                --model_author swift \
+                --model_name swift-robot \
                 --report_to tensorboard 2>&1 | tee "${TRAINING_LOG}"
 
               python3 - <<'PY' || echo "BENCH_METRICS_WARN=loss_artifact_generation_failed"
@@ -420,8 +359,7 @@ spec:
                 CUDA_VISIBLE_DEVICES=0,1,2,3 \
                 swift infer \
                   --model "${QWEN_MODEL}" \
-                  --use_hf true \
-                  --val_dataset "${EVAL_PROMPTS_PATH}" \
+                  --val_dataset "${QWEN_EVAL_DATASET_ARGS[@]}" \
                   --result_path "${EVAL_BASE_PATH}" \
                   --infer_backend vllm \
                   --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
@@ -447,7 +385,7 @@ spec:
                   CUDA_VISIBLE_DEVICES=0,1,2,3 \
                   swift infer \
                     --model "${merged_model_dir}" \
-                    --val_dataset "${EVAL_PROMPTS_PATH}" \
+                    --val_dataset "${QWEN_EVAL_DATASET_ARGS[@]}" \
                     --result_path "${EVAL_FINETUNED_PATH}" \
                     --infer_backend vllm \
                     --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
@@ -463,9 +401,8 @@ spec:
                   CUDA_VISIBLE_DEVICES=0,1,2,3 \
                   swift infer \
                     --model "${QWEN_MODEL}" \
-                    --use_hf true \
                     --adapters "${checkpoint_dir}" \
-                    --val_dataset "${EVAL_PROMPTS_PATH}" \
+                    --val_dataset "${QWEN_EVAL_DATASET_ARGS[@]}" \
                     --result_path "${EVAL_FINETUNED_PATH}" \
                     --infer_backend vllm \
                     --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
@@ -502,11 +439,15 @@ spec:
                 import os
                 from pathlib import Path
 
-                prompts_path = Path(os.environ["EVAL_PROMPTS_PATH"])
                 base_path = Path(os.environ["EVAL_BASE_PATH"])
                 finetuned_path = Path(os.environ["EVAL_FINETUNED_PATH"])
                 compare_json = Path(os.environ["EVAL_COMPARE_JSON"])
                 compare_md = Path(os.environ["EVAL_COMPARE_MD"])
+                eval_datasets = [
+                    item
+                    for item in os.environ.get("QWEN_EVAL_DATASETS", "").split("|")
+                    if item
+                ]
 
                 def load_jsonl(path):
                     if not path.exists():
@@ -564,17 +505,19 @@ spec:
                                 return str(message.get("content", "")).strip()
                     return json.dumps(record, ensure_ascii=False)[:2000]
 
-                prompts = load_jsonl(prompts_path)
                 base_rows = load_jsonl(base_path)
                 finetuned_rows = load_jsonl(finetuned_path)
 
                 records = []
-                for idx, prompt_record in enumerate(prompts):
+                sample_count = max(len(base_rows), len(finetuned_rows))
+                for idx in range(sample_count):
+                    base_record = base_rows[idx] if idx < len(base_rows) else {}
+                    finetuned_record = finetuned_rows[idx] if idx < len(finetuned_rows) else {}
                     records.append(
                         {
-                            "prompt": extract_prompt(prompt_record),
-                            "base": extract_response(base_rows[idx]) if idx < len(base_rows) else "",
-                            "finetuned": extract_response(finetuned_rows[idx]) if idx < len(finetuned_rows) else "",
+                            "prompt": extract_prompt(base_record) or extract_prompt(finetuned_record),
+                            "base": extract_response(base_record),
+                            "finetuned": extract_response(finetuned_record),
                         }
                     )
 
@@ -583,9 +526,12 @@ spec:
                 lines = [
                     "# Qwen Smoke Prompt Comparison",
                     "",
-                    "Held-out prompts are not included in the synthetic training set.",
+                    "Evaluation samples come from the Qwen/SWIFT official dataset registry entries:",
                     "",
                 ]
+                for dataset in eval_datasets:
+                    lines.append(f"- `{dataset}`")
+                lines.append("")
                 for idx, record in enumerate(records, 1):
                     lines.extend(
                         [
@@ -627,8 +573,12 @@ spec:
               value: "16"
             - name: QWEN_MAX_LENGTH
               value: "2048"
-            - name: QWEN_MAX_SAMPLES
-              value: "4096"
+            - name: QWEN_DATASETS
+              value: "AI-ModelScope/alpaca-gpt4-data-zh#500|AI-ModelScope/alpaca-gpt4-data-en#500|swift/self-cognition#500"
+            - name: QWEN_EVAL_DATASETS
+              value: "AI-ModelScope/alpaca-gpt4-data-en#3"
+            - name: QWEN_SPLIT_DATASET_RATIO
+              value: "0.01"
             - name: QWEN_TRAIN_ITERS
               value: "256"
             - name: QWEN_RUN_SAMPLE_INFERENCE

@@ -280,7 +280,7 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 35B-MOE-01 | 4 | 16 | 1.74† | - | - | 24.27 | 2m27s train / 736s attempt | ~$16.77† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 16 steps |
 | 35B-MOE-02 | 8 | 32 | 1.97† | - | - | 24.77 | 2m10s train / 271s attempt | ~$14.79† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 8 steps |
 
-†Short smoke benchmark over 256 synthetic chat samples on the clean us-east-2 validation cluster. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price, and exclude the one-time Qwen3.6 model cache population. Including load/save attempt time, 35B-MOE-01 is ~0.35 samples/s and ~$83.8/10k samples because it also wrote the merged safetensors checkpoint. Run the full 10k-sample benchmark before comparing these values against production results.
+†Historical smoke benchmark from the earlier local generated dataset on the clean us-east-2 validation cluster. The Qwen3.6 overlay now defaults to the text instruction portion of the Qwen/SWIFT official example datasets, so rerun these rows before using them for dataset-sensitive throughput or quality comparisons. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price, and exclude the one-time Qwen3.6 model cache population. Including load/save attempt time, 35B-MOE-01 is ~0.35 samples/s and ~$83.8/10k samples because it also wrote the merged safetensors checkpoint. Run the full 10k-sample benchmark before comparing these values against production results.
 
 ### 30B MoE Model (Qwen3-30B-A3B) - Megatron-SWIFT + LoRA + EP
 
@@ -295,7 +295,7 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 30B-MOE-07 | 1 | 16 | 7268.5 | - | - | - | 44.38 / 44.39 used | Failed during model build | - | g6e.2xlarge, 1x L40S, EP=1; CUDA OOM instantiating Megatron MoE layers |
 | 30B-MOE-08 | 1 | 16 | - | - | - | - | - | - | - | p4d.24xlarge, 8x A100, EP=8; node launched but Cilium failed before GPU registration |
 
-†Short benchmark over 512 synthetic packed chat samples on the clean us-east-2 validation cluster. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` of 74.950454s plus the document's g6e.12xlarge reference price, and exclude job startup, model load, and checkpoint merge. Including the full 3127s attempt duration, throughput is ~0.164 samples/s and cost is ~$178.01/10k samples. Failed rows used the same packed 8k Megatron-SWIFT Job manifest shape unless they were blocked before scheduling.
+†Historical benchmark from the earlier local generated packed dataset on the clean us-east-2 validation cluster. The overlay now uses the text instruction portion of the Qwen/SWIFT official example datasets by default, so rerun this row before using it for dataset-sensitive throughput or quality comparisons. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` of 74.950454s plus the document's g6e.12xlarge reference price, and exclude job startup, model load, and checkpoint merge. Including the full 3127s attempt duration, throughput is ~0.164 samples/s and cost is ~$178.01/10k samples. Failed rows used the same packed 8k Megatron-SWIFT Job manifest shape unless they were blocked before scheduling.
 
 ### 235B Model (Qwen3 MoE) - DeepSpeed ZeRO-3 + LoRA
 
@@ -494,7 +494,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 
 ### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
 
-**Configuration:** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 synthetic chat samples.
+**Configuration (historical, superseded):** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 locally generated chat samples. The checked-in overlay has since been switched to the text instruction portion of the Qwen/SWIFT official example datasets.
 
 **Results:**
 
@@ -515,12 +515,12 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
 - **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
 - **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
-- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay now runs 256 steps over 4096 synthetic samples by default, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three held-out prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The training set teaches a consistent `EKSFT-VERIFY` validation format so `eval/sample-compare.md` can show whether the fine-tuned checkpoint learned repository-specific response structure, not just whether loss decreased.
+- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The dataset defaults now follow the text instruction portion of the Qwen/SWIFT official example datasets: `AI-ModelScope/alpaca-gpt4-data-zh#500`, `AI-ModelScope/alpaca-gpt4-data-en#500`, and `swift/self-cognition#500`. The evaluation sample dataset is recorded in `eval/eval-datasets.txt`, and the training dataset list is recorded in `datasets.txt`.
 - **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
 ### 30B MoE Megatron-SWIFT EP Benchmark (2026-04-29)
 
-**Configuration:** Qwen3-30B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=8192, packing enabled, flash attention, 512 synthetic chat samples. The run reused the Qwen3.6 Kubernetes Job overlay with the model and benchmark parameters changed in a temporary manifest.
+**Configuration (historical, superseded):** Qwen3-30B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=8192, packing enabled, flash attention, 512 locally generated packed chat samples. The run reused the Qwen3.6 Kubernetes Job overlay with the model and benchmark parameters changed in a temporary manifest; rerun on the official dataset defaults before treating this as a dataset-sensitive benchmark.
 
 **Results:**
 
@@ -553,7 +553,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 
 ### 30B MoE Matrix Follow-up (2026-04-29)
 
-The follow-up matrix used the same `Qwen/Qwen3-30B-A3B` Megatron-SWIFT LoRA benchmark settings as 30B-MOE-01: rank 8 LoRA, max_length=8192, packing enabled, flash attention, micro batch 1, global batch 16, and 512 synthetic chat samples.
+The follow-up matrix used the same `Qwen/Qwen3-30B-A3B` Megatron-SWIFT LoRA benchmark settings as 30B-MOE-01: rank 8 LoRA, max_length=8192, packing enabled, flash attention, micro batch 1, global batch 16, and the earlier locally generated packed chat samples. Rerun this matrix with the official dataset defaults before comparing dataset-sensitive throughput or quality.
 
 | ID | Config | Outcome | Evidence |
 |----|--------|---------|----------|
