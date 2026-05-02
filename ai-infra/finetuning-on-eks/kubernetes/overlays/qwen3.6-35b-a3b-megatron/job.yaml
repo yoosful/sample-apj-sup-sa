@@ -31,7 +31,7 @@ metadata:
     workload: gpu-training
 spec:
   backoffLimit: 0
-  ttlSecondsAfterFinished: 3600
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -352,6 +352,10 @@ spec:
               print(f"BENCH_LOSS_CSV={csv_path}")
               print(f"BENCH_LOSS_SVG={svg_path}")
               PY
+
+              echo "BENCH_OUTPUT_DIR=${OUTPUT_DIR}"
+              find "${OUTPUT_DIR}" -type d -name "checkpoint-${QWEN_TRAIN_ITERS}" | sort | tail -n 1 | sed 's#^#BENCH_CHECKPOINT_DIR=#'
+              find "${OUTPUT_DIR}" -type d -name "checkpoint-${QWEN_TRAIN_ITERS}-merged" | sort | tail -n 1 | sed 's#^#BENCH_MERGED_MODEL_DIR=#'
 
               run_base_sample_inference() {
                 rm -f "${EVAL_BASE_PATH}"
