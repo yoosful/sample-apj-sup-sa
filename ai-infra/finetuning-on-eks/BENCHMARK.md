@@ -535,14 +535,6 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 | Persistent checkpoint archive | `s3://qwen-ep-checkpoints-833277791039-us-east-2/qwen3.6-35b-a3b-textmix/20260502-134932-g6e12-ep4-swift413-textmix/` |
 | S3 archive verification | 38 objects, 65.4 GiB, bucket versioning enabled |
 
-![Qwen3.6 text-mix rerun train loss](docs/benchmarks/35B-MOE-05/loss.svg)
-
-**Retained artifacts:**
-
-- `docs/benchmarks/35B-MOE-05/checkpoint-s3-uri.txt`
-- `docs/benchmarks/35B-MOE-05/loss.svg`
-- `docs/benchmarks/35B-MOE-05/sample-compare.md`
-
 **Validation notes:**
 
 - The rerun preserved `checkpoint-256/` and `checkpoint-256-merged/` to an S3 bucket outside the Terraform stack before any cleanup.
@@ -553,7 +545,6 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 
 - Restored the preserved `checkpoint-256-merged/` from the external S3 archive onto a clean eval-only us-east-2 EKS stack (`cluster_name=pr12eval`) and reran direct vLLM generation with `max_new_tokens=1024`, `vllm_max_model_len=4096`, TP=4, and EP enabled.
 - Both base and fine-tuned inference logs confirmed EP rank 0/4 with 64 local experts out of 256 global experts.
-- Artifact: `docs/benchmarks/35B-MOE-05/sample-compare.md`.
 - Result: this qualitative check does not prove quality improvement. The fine-tuned model became much more concise, but Prompt 1 regressed: it accepts any one reachable transceiver pair instead of requiring all three people to be connected. Prompt 2 and Prompt 3 are correct and shorter than the base responses.
 
 ### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
@@ -579,7 +570,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
 - **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
 - **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
-- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The current dataset defaults are recorded in the run root when the job executes; only the final graph, checkpoint URI, and long comparison are retained in this PR.
+- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The current dataset defaults are recorded in the run root when the job executes; generated artifacts are kept out of the repository and summarized in the PR body.
 - **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
 ### 30B MoE Megatron-SWIFT EP Benchmark (2026-04-29)
