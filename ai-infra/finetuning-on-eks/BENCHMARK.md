@@ -14,7 +14,6 @@ Compare training time and cost across different GPU instances for various model 
 |------|-------|----------------|
 | 1B | TinyLlama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` |
 | 7B | Mistral 7B | `mistralai/Mistral-7B-Instruct-v0.3` |
-| 30B MoE | Qwen3 30B-A3B | `Qwen/Qwen3-30B-A3B` |
 | 35B MoE | Qwen3.6 35B-A3B | `Qwen/Qwen3.6-35B-A3B` |
 | 70B | Llama 3 | `meta-llama/Meta-Llama-3-70B` |
 
@@ -189,19 +188,6 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 35B-MOE-04 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
 | 35B-MOE-05 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed; checkpoint archived |
 
-### 30B MoE Model (Qwen3-30B-A3B) - Expert Parallelism
-
-| ID | Instance | GPUs | Nodes | Parallelism | Status |
-|----|----------|------|-------|-------------|--------|
-| 30B-MOE-01 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
-| 30B-MOE-02 | g6e.48xlarge | 8 | 1 | Megatron-SWIFT LoRA + EP=8 | Blocked: GPU vCPU quota |
-| 30B-MOE-03 | g7e.12xlarge | 2 | 1 | Megatron-SWIFT LoRA + EP=2 | Blocked: insufficient capacity |
-| 30B-MOE-04 | g5.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | Failed: CUDA OOM |
-| 30B-MOE-05 | g7e.8xlarge | 1 | 1 | Megatron-SWIFT LoRA + EP=1 | Blocked: insufficient capacity |
-| 30B-MOE-06 | g7e.4xlarge | 1 | 1 | Megatron-SWIFT LoRA + EP=1 | Blocked: insufficient capacity |
-| 30B-MOE-07 | g6e.2xlarge | 1 | 1 | Megatron-SWIFT LoRA + EP=1 | Failed: CUDA OOM |
-| 30B-MOE-08 | p4d.24xlarge | 8 | 1 | Megatron-SWIFT LoRA + EP=8 | Blocked: node init failure |
-
 ## Results
 
 ### 1B Model
@@ -287,21 +273,6 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 35B-MOE-05 | 4 | 16 | 2.14 | - | - | 38.10 logged | 31m52s train / 3459s full | ~$13.61 train-only / ~$24.61 full | Clean rerun of 35B-MOE-04; checkpoint-256 and merged 65.4 GiB archive preserved in external S3 |
 
 †Historical smoke benchmark from the earlier local generated dataset on the clean us-east-2 validation cluster. 35B-MOE-04 is the current checked-in overlay result on the SWIFT-supported text-only multi-domain mix. 35B-MOE-05 reruns the same checked-in overlay and preserves both checkpoints outside the Terraform validation stack. 35B-MOE-03 remains the prior Alpaca-GPT4 baseline. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price. The "full" cost includes checkpoint merge and before/after sample inference, but still excludes one-time Qwen3.6 model cache population.
-
-### 30B MoE Model (Qwen3-30B-A3B) - Megatron-SWIFT + LoRA + EP
-
-| ID | Batch/GPU | Global Batch | Avg Tokens/Sample | Throughput | Token Throughput | GPU % | VRAM (GB) | Wall Time | $/10k samples | Notes |
-|----|-----------|--------------|-------------------|------------|------------------|-------|-----------|-----------|---------------|-------|
-| 30B-MOE-01 | 1 | 16 | 7268.5 | 0.213 s/s† | 1552 tok/s† | 98-100% | 30.42 logged / 36.0 observed | 39m58s train / 3127s attempt | ~$136.54† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, flash attention, packed 8k, 32 steps |
-| 30B-MOE-02 | 1 | 16 | - | - | - | - | - | - | - | g6e.48xlarge, 8x L40S, EP=8; blocked by `VcpuLimitExceeded` with GPU vCPU quota 64 |
-| 30B-MOE-03 | 1 | 16 | - | - | - | - | - | - | - | g7e.12xlarge, 2x RTX 6000, EP=2; blocked by EC2 `InsufficientInstanceCapacity` in us-east-2 |
-| 30B-MOE-04 | 1 | 16 | 7268.5 | - | - | - | 22.23 / 22.30 used | Failed at first forward | - | g5.12xlarge, 4x A10G, EP=4; CUDA OOM allocating 314 MiB |
-| 30B-MOE-05 | 1 | 16 | - | - | - | - | - | - | - | g7e.8xlarge, 1x RTX 6000, EP=1; blocked by EC2 `InsufficientInstanceCapacity` in us-east-2 |
-| 30B-MOE-06 | 1 | 16 | - | - | - | - | - | - | - | g7e.4xlarge, 1x RTX 6000, EP=1; blocked by EC2 `InsufficientInstanceCapacity` in us-east-2 |
-| 30B-MOE-07 | 1 | 16 | 7268.5 | - | - | - | 44.38 / 44.39 used | Failed during model build | - | g6e.2xlarge, 1x L40S, EP=1; CUDA OOM instantiating Megatron MoE layers |
-| 30B-MOE-08 | 1 | 16 | - | - | - | - | - | - | - | p4d.24xlarge, 8x A100, EP=8; node launched but Cilium failed before GPU registration |
-
-†Historical benchmark from the earlier local generated packed dataset on the clean us-east-2 validation cluster. The overlay now uses the SWIFT-supported text-only multi-domain mix by default, so rerun this row before using it for dataset-sensitive throughput or quality comparisons. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` of 74.950454s plus the document's g6e.12xlarge reference price, and exclude job startup, model load, and checkpoint merge. Including the full 3127s attempt duration, throughput is ~0.164 samples/s and cost is ~$178.01/10k samples. Failed rows used the same packed 8k Megatron-SWIFT Job manifest shape unless they were blocked before scheduling.
 
 ### 235B Model (Qwen3 MoE) - DeepSpeed ZeRO-3 + LoRA
 
@@ -573,59 +544,6 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The current dataset defaults are recorded in the run root when the job executes; generated artifacts are kept out of the repository and summarized in the PR body.
 - **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
-### 30B MoE Megatron-SWIFT EP Benchmark (2026-04-29)
-
-**Configuration (historical, superseded):** Qwen3-30B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=8192, packing enabled, flash attention, 512 locally generated packed chat samples. The run reused the Qwen3.6 Kubernetes Job overlay with the model and benchmark parameters changed in a temporary manifest; rerun on the text-mix dataset defaults before treating this as a dataset-sensitive benchmark.
-
-**Results:**
-
-| Metric | 30B-MOE-01 |
-|--------|------------|
-| Micro batch / global batch | 1 / 16 |
-| Steps | 32 |
-| Dataset token length | 7268.5 +/- 1551.1, min 4582, max 8190 |
-| Final train_speed | 74.950454 s/it |
-| Throughput | 0.213 samples/s |
-| Token throughput | 1552 tok/s total, 388 tok/s/GPU |
-| Peak logged VRAM | 30.42 GiB |
-| Observed nvidia-smi VRAM | up to 36.0 GiB |
-| Observed GPU utilization | 98-100% |
-| Final loss | 0.00060331 |
-| Attempt duration | 3127s |
-
-**Public comparison:**
-
-- **Qwen/MS-SWIFT reference:** The public Qwen MS-SWIFT guide publishes a Qwen3-30B-A3B Megatron-SWIFT run on 2 nodes x 8 A800 80GiB GPUs with TP=2, EP=8, global batch 16, packing, max_length=8192, and flash attention. It reports Megatron-LM at 9.6s/it and 16 x 60GiB, versus DeepSpeed-ZeRO3 at 91.2s/it and 16 x 80GiB. Source: https://qwen.readthedocs.io/en/latest/training/ms_swift.html#megatron-swift
-- **This EKS run:** 74.950454s/it is 7.8x slower than the Qwen Megatron reference on a per-step basis, but it used only 4 L40S GPUs on a single PCIe node and LoRA instead of the reference full-parameter setup. Numerically it is faster per step than the published ZeRO3 value, but that comparison is not apples-to-apples because the hardware count and trainable parameter set differ.
-- **NVIDIA Megatron-Core context:** NVIDIA's MoE EP benchmark shows Mixtral 8x7B at 402 TFLOP/s/GPU on 128 H100 GPUs with EP=8 and pipeline parallelism. That is useful directional evidence for EP at scale, but not directly comparable to this 4x L40S LoRA smoke benchmark. Source: https://developer.nvidia.com/blog/train-generative-ai-models-more-efficiently-with-new-nvidia-megatron-core-functionalities/
-
-**Key findings:**
-
-- **The same Kubernetes Job path can exercise Qwen3-30B-A3B.** No RayJob changes were required; the Megatron-SWIFT Job overlay worked after changing the model and benchmark parameters.
-- **8k packed Qwen3-30B-A3B fits on g6e.12xlarge with EP=4.** Logged Megatron memory stayed at 30.42 GiB/GPU and sampled nvidia-smi memory peaked at 36.0 GiB on 48 GiB L40S cards.
-- **The run is compute-bound once training starts.** Sampled GPU utilization was 98-100%, while the final cumulative step time converged from 93.6s/it at step 1 to 74.95s/it by step 32.
-- **Checkpoint merge still matters.** Training completed in 39m58s, but the full attempt took 3127s because it included model load and saving both Megatron and merged safetensors checkpoints.
-
-### 30B MoE Matrix Follow-up (2026-04-29)
-
-The follow-up matrix used the same `Qwen/Qwen3-30B-A3B` Megatron-SWIFT LoRA benchmark settings as 30B-MOE-01: rank 8 LoRA, max_length=8192, packing enabled, flash attention, micro batch 1, global batch 16, and the earlier locally generated packed chat samples. Rerun this matrix with the text-mix dataset defaults before comparing dataset-sensitive throughput or quality.
-
-| ID | Config | Outcome | Evidence |
-|----|--------|---------|----------|
-| 30B-MOE-02 | g6e.48xlarge, 8x L40S, EP=8 | Blocked before pod start | Karpenter CreateFleet failed with `VcpuLimitExceeded`; the account GPU vCPU quota was 64 and the instance needs 192 vCPUs. |
-| 30B-MOE-03 | g7e.12xlarge, 2x RTX 6000, EP=2 | Blocked before pod start | EC2 returned `InsufficientInstanceCapacity` across the available us-east-2 subnets. |
-| 30B-MOE-04 | g5.12xlarge, 4x A10G, EP=4 | Failed after launch | Training reached the first forward pass and hit CUDA OOM: 22.23 GiB used out of 22.30 GiB while allocating 314 MiB. |
-| 30B-MOE-05 | g7e.8xlarge, 1x RTX 6000, EP=1 | Blocked before pod start | EC2 returned `InsufficientInstanceCapacity`; an initial attempt was also delayed by the 64 GPU vCPU quota until the previous g5 node terminated. |
-| 30B-MOE-06 | g7e.4xlarge, 1x RTX 6000, EP=1 | Blocked before pod start | EC2 returned `InsufficientInstanceCapacity` across the available us-east-2 subnets. |
-| 30B-MOE-07 | g6e.2xlarge, 1x L40S, EP=1 | Failed after launch | Model construction OOMed before training: 44.38 GiB used out of 44.39 GiB while instantiating Megatron MoE layers. |
-| 30B-MOE-08 | p4d.24xlarge, 8x A100, EP=8 | Blocked after node launch | p4d nodes launched, but Cilium entered CrashLoopBackOff with BPF map allocation failures; nodes kept `node.cilium.io/agent-not-ready` and did not register `nvidia.com/gpu`. |
-
-**Matrix findings:**
-
-- **Only the 4x L40S path completed in the current clean us-east-2 cluster.** It is the only configuration in this matrix that both provisioned and had enough memory for packed 8k Qwen3-30B-A3B LoRA.
-- **24 GiB A10G and single 48 GiB L40S are too small for this exact Megatron-SWIFT EP setup.** The A10G run reached forward pass and OOMed; the single L40S run OOMed during model construction.
-- **Larger GPU shapes still need quota/capacity or add-on cleanup before performance comparison.** g6e.48xlarge needs a GPU vCPU quota increase, g7e capacity was unavailable in this us-east-2 run, and p4d needs the Cilium/BPF node-init issue resolved before A100 NVSwitch benchmarking.
-
 ### 235B DeepSpeed ZeRO-3 Observations (2026-03-06)
 
 **Configuration:** Qwen3 235B-A22B (MoE, 128 experts, top-8 routing) with DeepSpeed ZeRO-3 + LoRA (rank 16, full precision). 8 GPUs per instance, batch_size=1, grad_accum=1, max_samples=10000.
@@ -834,5 +752,3 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-05-03 | Restored the preserved Qwen3.6-35B-A3B merged checkpoint on a clean eval stack and reran 1024-token before/after samples; documented one coding-sample regression plus two shorter correct responses |
 | 2026-05-01 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 after upstream main sync and clean us-east-2 deploy: mb4/global16 completed with 9.206532s/it, 1.74 s/s, 24.27 GiB logged VRAM |
 | 2026-04-29 | Completed Qwen3.6-35B-A3B Megatron-SWIFT EP=4 smoke benchmark on g6e.12xlarge: mb4/global16 at 1.70 s/s and mb8/global32 at 1.97 s/s; flash attention failed, unfused attention completed |
-| 2026-04-29 | Completed Qwen3-30B-A3B Megatron-SWIFT EP=4 8k packed benchmark on g6e.12xlarge: mb1/global16 at 74.950454s/it, 0.213 s/s, 1552 tok/s, 30.42 GiB logged VRAM |
-| 2026-04-29 | Ran Qwen3-30B-A3B matrix follow-up: g5.12xlarge and g6e.2xlarge OOMed, g6e.48xlarge blocked on GPU vCPU quota, g7e shapes blocked on regional capacity, and p4d blocked on Cilium/GPU node initialization |
