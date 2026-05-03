@@ -367,9 +367,9 @@ spec:
                   --infer_backend vllm \
                   --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
                   --vllm_enable_expert_parallel true \
-                  --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
+                  --vllm_max_model_len "${QWEN_SAMPLE_MAX_MODEL_LEN}" \
                   --vllm_gpu_memory_utilization 0.85 \
-                  --max_new_tokens 160 \
+                  --max_new_tokens "${QWEN_SAMPLE_MAX_NEW_TOKENS}" \
                   --enable_thinking false \
                   --temperature 0 \
                   --top_k 1 \
@@ -393,9 +393,9 @@ spec:
                     --infer_backend vllm \
                     --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
                     --vllm_enable_expert_parallel true \
-                    --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
+                    --vllm_max_model_len "${QWEN_SAMPLE_MAX_MODEL_LEN}" \
                     --vllm_gpu_memory_utilization 0.85 \
-                    --max_new_tokens 160 \
+                    --max_new_tokens "${QWEN_SAMPLE_MAX_NEW_TOKENS}" \
                     --enable_thinking false \
                     --temperature 0 \
                     --top_k 1 \
@@ -410,9 +410,9 @@ spec:
                     --infer_backend vllm \
                     --vllm_tensor_parallel_size "${QWEN_NPROC_PER_NODE}" \
                     --vllm_enable_expert_parallel true \
-                    --vllm_max_model_len "${QWEN_MAX_LENGTH}" \
+                    --vllm_max_model_len "${QWEN_SAMPLE_MAX_MODEL_LEN}" \
                     --vllm_gpu_memory_utilization 0.85 \
-                    --max_new_tokens 160 \
+                    --max_new_tokens "${QWEN_SAMPLE_MAX_NEW_TOKENS}" \
                     --enable_thinking false \
                     --temperature 0 \
                     --top_k 1 \
@@ -576,6 +576,10 @@ spec:
               value: "16"
             - name: QWEN_MAX_LENGTH
               value: "2048"
+            - name: QWEN_SAMPLE_MAX_MODEL_LEN
+              value: "4096"
+            - name: QWEN_SAMPLE_MAX_NEW_TOKENS
+              value: "1024"
             - name: QWEN_DATASETS
               value: "hf::open-thoughts/OpenThoughts-114k#2048|hf::bespokelabs/Bespoke-Stratos-17k#1024|hf::TIGER-Lab/MATH-plus#1024|hf::allenai/tulu-v2-sft-mixture#1024"
             - name: QWEN_EVAL_DATASETS

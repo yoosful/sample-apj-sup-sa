@@ -636,6 +636,13 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - The merged checkpoint is the large artifact: 66 GiB on EFS, uploaded as 16 safetensors shards plus tokenizer/config files.
 - vLLM sample generation confirmed expert parallelism during before/after inference: `Expert parallelism is enabled`, EP rank 0/4 with 64 local experts out of 256 global experts.
 
+**Long before/after sample rerun (2026-05-03):**
+
+- Restored the preserved `checkpoint-256-merged/` from the external S3 archive onto a clean eval-only us-east-2 EKS stack (`cluster_name=pr12eval`) and reran direct vLLM generation with `max_new_tokens=1024`, `vllm_max_model_len=4096`, TP=4, and EP enabled.
+- Both base and fine-tuned inference logs confirmed EP rank 0/4 with 64 local experts out of 256 global experts.
+- Artifacts: `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-long-compare-20260503/sample-compare.md`, `sample-compare.json`, `base-generations.jsonl`, and `finetuned-generations.jsonl`.
+- Result: this qualitative check does not prove quality improvement. The fine-tuned model became much more concise, but Prompt 1 regressed: it accepts any one reachable transceiver pair instead of requiring all three people to be connected. Prompt 2 and Prompt 3 are correct and shorter than the base responses.
+
 ### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
 
 **Configuration (historical, superseded):** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 locally generated chat samples. The checked-in overlay has since been switched to the text-only multi-domain mix validated in 35B-MOE-04.
@@ -920,6 +927,7 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-03-15 | Completed 1B-12: g7e.24xlarge 4x RTX 6000 Blackwell DDP batch=16 (232.58 s/s, 43s, $0.20/10k — highest 1B throughput) |
 | 2026-03-10 | Completed 70B-13: g7e.48xlarge 8x RTX 6000 LoRA+FSDP (0.67 s/s, 14900s, $137.2/10k). PCIe with limited P2P, 11.9s/step — significantly slower than NVSwitch (70B-12 at 6.0s/step) |
 | 2026-05-02 | Reran Qwen3.6-35B-A3B text-mix EP=4 on a clean us-east-2 deploy and archived checkpoint-256 plus the 65.4 GiB merged checkpoint to external S3 before cleanup |
+| 2026-05-03 | Restored the preserved Qwen3.6-35B-A3B merged checkpoint on a clean eval stack and reran 1024-token before/after samples; documented one coding-sample regression plus two shorter correct responses |
 | 2026-05-02 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 on a clean us-east-2 deploy with the SWIFT-supported text-only multi-domain mix: 256 steps completed at 7.469366s/it, 2.14 s/s train throughput, 37.32 GiB logged VRAM, eval loss 0.47294652, and before/after sample artifacts committed |
 | 2026-05-02 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 on a clean us-east-2 deploy with the SWIFT-registered Alpaca-GPT4 example dataset: 256 steps completed at 4.423551s/it, 3.62 s/s train throughput, 27.14 GiB logged VRAM, and before/after sample artifacts committed |
 | 2026-05-01 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 after upstream main sync and clean us-east-2 deploy: mb4/global16 completed with 9.206532s/it, 1.74 s/s, 24.27 GiB logged VRAM |
