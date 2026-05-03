@@ -1,2 +1,0 @@
-hf::open-thoughts/OpenThoughts-114k#2
-hf::TIGER-Lab/MATH-plus#1

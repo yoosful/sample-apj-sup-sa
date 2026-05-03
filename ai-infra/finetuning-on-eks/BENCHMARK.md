@@ -498,47 +498,11 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **VRAM heavily underutilized**: 8B uses 32.67/80 GB (41%), 70B uses 50.80/80 GB (64%). Increasing batch sizes would improve both throughput and utilization.
 - **Cost-inefficient at current batch sizes**: At $55.04/hr, H100 must deliver proportionally higher throughput to justify the price. 8B-11 at $1.41/10k is competitive, but 70B-04 at $29.57/10k is 2.4x more expensive than 70B-05 ($12.27/10k) while being 31% slower.
 
-### 35B MoE Megatron-SWIFT EP Official Dataset Validation (2026-05-02)
+### 35B MoE Megatron-SWIFT EP Text-Mix Checkpoint-Preserved Rerun (2026-05-02)
 
-**Configuration:** Clean `dev` deploy in us-east-2 (`cluster_name=pr12eks`) from PR-12 after upstream sync. Terraform completed a fresh apply with 114 resources added. The benchmark ran Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge, max_length=2048, micro batch 4, global batch 16, and unfused attention. The dataset was `hf::vicgalle/alpaca-gpt4#4096`, the HF mirror of SWIFT's registered `AI-ModelScope/alpaca-gpt4-data-en` example dataset. The evaluation sample set was `hf::vicgalle/alpaca-gpt4#3`.
+**Configuration:** Clean `dev` deploy in us-east-2 (`cluster_name=pr12eks`) from PR-12. Terraform completed a fresh apply with 114 resources added, including the EFS mount targets. The run used Qwen3.6-35B-A3B, Megatron-SWIFT LoRA rank 8, EP=4, 4x L40S on one g6e.12xlarge, max_length=2048, micro batch 4, global batch 16, grouped length batching, and unfused attention.
 
-**Run result:** Kubernetes Job `qwen-ep-benchmark` completed successfully with run root `/data/qwen-ep-bench/20260502-070008-g6e12-ep4-swift413-unfused`.
-
-| Metric | 35B-MOE-03 |
-|--------|------------|
-| Instance | g6e.12xlarge, 4x L40S |
-| Train iterations | 256 |
-| Final cumulative train speed | 4.423551 s/it |
-| Train throughput | 3.62 samples/s |
-| Full run throughput | 1.84 samples/s including save, merge, and sample inference |
-| Final train step loss | 0.69953525 |
-| Eval loss at step 256 | 0.82834214 |
-| Peak logged VRAM | 27.14 GiB |
-| Sampled nvidia-smi memory | 29.6 GiB used / 45.0 GiB total per GPU |
-| Sampled GPU utilization | 100% on all 4 GPUs |
-| Full run duration | 2223s |
-
-![Qwen3.6 official dataset train loss](docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.svg)
-
-**Artifacts committed with this run:**
-
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.csv`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/loss.svg`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/sample-compare.md`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-20260502/summary.txt`
-
-**Validation notes:**
-
-- The PR-12 EFS `for_each` fix plans and applies cleanly on a fresh VPC/EKS deploy; the previous unknown-key Terraform planning failure did not reproduce.
-- This run no longer used generated local data. It trained and sampled from the SWIFT-registered Alpaca-GPT4 text instruction dataset via the HF mirror; the checked-in overlay was later moved to the text-mix benchmark in 35B-MOE-04.
-- The Job path is still the right wrapper for this EP validation. Megatron-SWIFT launches Megatron/torch.distributed directly, while the existing RayJob overlays wrap Ray Train and Hugging Face Trainer.
-- Before/after prompt samples were generated from the completed merged checkpoint and are recorded in `sample-compare.md`.
-
-### 35B MoE Megatron-SWIFT EP Text-Mix Validation (2026-05-02)
-
-**Configuration:** Clean `dev` deploy in us-east-2 (`cluster_name=pr12eks`) from PR-12. Terraform completed a fresh apply with 114 resources added, including the EFS mount targets. The benchmark ran Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge, max_length=2048, micro batch 4, global batch 16, grouped length batching, and unfused attention.
-
-**Dataset rationale:** The checked-in overlay now uses a SWIFT-supported, text-only multi-domain mix instead of a single synthetic or Alpaca-style dataset. This is more appropriate for a MoE/EP validation because it exercises routing across reasoning, math/code-style problem solving, and general instruction following while staying within text-only Qwen3.6-35B-A3B SFT support.
+**Dataset rationale:** The checked-in overlay uses a SWIFT-supported, text-only multi-domain mix instead of synthetic data or a single Alpaca-style dataset. This is more appropriate for a MoE/EP validation because it exercises routing across reasoning, math/code-style problem solving, and general instruction following while staying within text-only Qwen3.6-35B-A3B SFT support.
 
 **Training datasets:**
 
@@ -551,49 +515,6 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 
 - `hf::open-thoughts/OpenThoughts-114k#2`
 - `hf::TIGER-Lab/MATH-plus#1`
-
-**Run result:** Kubernetes Job `qwen-ep-benchmark` completed successfully with run root `/data/qwen-ep-bench/20260502-115207-g6e12-ep4-swift413-textmix`.
-
-| Metric | 35B-MOE-04 |
-|--------|------------|
-| Instance | g6e.12xlarge, 4x L40S |
-| Parallelism | TP=1, PP=1, EP=4 |
-| MoE shape | 256 experts, top-8 routing |
-| Train iterations | 256 |
-| Dataset after filtering | 2,255 train / 23 eval samples |
-| Train token length | 595.91 +/- 580.28, min 26, max 2047 |
-| Final cumulative train speed | 7.469366 s/it |
-| Train throughput | 2.14 samples/s |
-| Full run throughput | 1.20 samples/s including save, merge, and sample inference |
-| Final train step loss | 0.30890104 |
-| Eval loss at step 256 | 0.47294652 |
-| Peak logged VRAM | 37.32 GiB |
-| Sampled nvidia-smi memory | 38.5-40.6 GiB used / 45.0 GiB total per GPU |
-| Sampled GPU utilization | 99-100% on most samples |
-| Full run duration | 3421s |
-
-![Qwen3.6 text-mix train loss](docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/loss.svg)
-
-**Artifacts committed with this run:**
-
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/datasets.txt`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/eval-datasets.txt`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/logging.jsonl`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/loss.csv`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/loss.svg`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/sample-compare.md`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-20260502/summary.txt`
-
-**Validation notes:**
-
-- The PR-12 EFS `for_each` fix was checked again in the same clean deploy; Terraform planned and applied with known EFS mount target keys and the previous fresh-deploy planning failure did not reproduce.
-- Megatron-SWIFT confirmed `model_type='qwen3_5_moe'`, `expert_model_parallel_size=4`, 256 experts, and top-8 routing in the run log.
-- The short validation loss curve is noisy because the mix intentionally combines heterogeneous reasoning and instruction data, but the run completed with visible loss movement and a merged checkpoint usable for before/after samples.
-- During eval setup SWIFT attempted ModelScope-style probes for HF dataset names and logged "Repo ... does not exist" messages, then used the already downloaded HF dataset cache. This did not fail the run.
-
-### 35B MoE Megatron-SWIFT EP Text-Mix Checkpoint-Preserved Rerun (2026-05-02)
-
-**Configuration:** Same checked-in text-mix overlay as 35B-MOE-04 on a clean `dev` deploy in us-east-2 (`cluster_name=pr12eks`). The rerun used Qwen3.6-35B-A3B, Megatron-SWIFT LoRA rank 8, EP=4, 4x L40S on one g6e.12xlarge, max_length=2048, micro batch 4, global batch 16, grouped length batching, and unfused attention.
 
 **Run result:** Kubernetes Job `qwen-ep-benchmark` completed successfully with run root `/data/qwen-ep-bench/20260502-134932-g6e12-ep4-swift413-textmix`.
 
@@ -616,19 +537,11 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 
 ![Qwen3.6 text-mix rerun train loss](docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/loss.svg)
 
-**Artifacts committed with this rerun:**
+**Retained artifacts:**
 
 - `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/checkpoint-s3-uri.txt`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/datasets.txt`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/eval-datasets.txt`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/base-generations.jsonl`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/finetuned-generations.jsonl`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/logging.jsonl`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/loss.csv`
 - `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/loss.svg`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/sample-compare.json`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/sample-compare.md`
-- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-rerun-20260502/summary.txt`
+- `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-long-compare-20260503/sample-compare.md`
 
 **Validation notes:**
 
@@ -640,7 +553,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 
 - Restored the preserved `checkpoint-256-merged/` from the external S3 archive onto a clean eval-only us-east-2 EKS stack (`cluster_name=pr12eval`) and reran direct vLLM generation with `max_new_tokens=1024`, `vllm_max_model_len=4096`, TP=4, and EP enabled.
 - Both base and fine-tuned inference logs confirmed EP rank 0/4 with 64 local experts out of 256 global experts.
-- Artifacts: `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-long-compare-20260503/sample-compare.md`, `sample-compare.json`, `base-generations.jsonl`, and `finetuned-generations.jsonl`.
+- Artifact: `docs/benchmarks/qwen3.6-35b-a3b-ep-textmix-long-compare-20260503/sample-compare.md`.
 - Result: this qualitative check does not prove quality improvement. The fine-tuned model became much more concise, but Prompt 1 regressed: it accepts any one reachable transceiver pair instead of requiring all three people to be connected. Prompt 2 and Prompt 3 are correct and shorter than the base responses.
 
 ### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
@@ -666,7 +579,7 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
 - **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
 - **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
-- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The current dataset default is the text-only multi-domain mix recorded in `datasets.txt`; the evaluation sample dataset is recorded in `eval/eval-datasets.txt`.
+- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The current dataset defaults are recorded in the run root when the job executes; only the final graph, checkpoint URI, and long comparison are retained in this PR.
 - **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
 ### 30B MoE Megatron-SWIFT EP Benchmark (2026-04-29)
@@ -928,8 +841,6 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-03-10 | Completed 70B-13: g7e.48xlarge 8x RTX 6000 LoRA+FSDP (0.67 s/s, 14900s, $137.2/10k). PCIe with limited P2P, 11.9s/step — significantly slower than NVSwitch (70B-12 at 6.0s/step) |
 | 2026-05-02 | Reran Qwen3.6-35B-A3B text-mix EP=4 on a clean us-east-2 deploy and archived checkpoint-256 plus the 65.4 GiB merged checkpoint to external S3 before cleanup |
 | 2026-05-03 | Restored the preserved Qwen3.6-35B-A3B merged checkpoint on a clean eval stack and reran 1024-token before/after samples; documented one coding-sample regression plus two shorter correct responses |
-| 2026-05-02 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 on a clean us-east-2 deploy with the SWIFT-supported text-only multi-domain mix: 256 steps completed at 7.469366s/it, 2.14 s/s train throughput, 37.32 GiB logged VRAM, eval loss 0.47294652, and before/after sample artifacts committed |
-| 2026-05-02 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 on a clean us-east-2 deploy with the SWIFT-registered Alpaca-GPT4 example dataset: 256 steps completed at 4.423551s/it, 3.62 s/s train throughput, 27.14 GiB logged VRAM, and before/after sample artifacts committed |
 | 2026-05-01 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 after upstream main sync and clean us-east-2 deploy: mb4/global16 completed with 9.206532s/it, 1.74 s/s, 24.27 GiB logged VRAM |
 | 2026-04-29 | Completed Qwen3.6-35B-A3B Megatron-SWIFT EP=4 smoke benchmark on g6e.12xlarge: mb4/global16 at 1.70 s/s and mb8/global32 at 1.97 s/s; flash attention failed, unfused attention completed |
 | 2026-04-29 | Completed Qwen3-30B-A3B Megatron-SWIFT EP=4 8k packed benchmark on g6e.12xlarge: mb1/global16 at 74.950454s/it, 0.213 s/s, 1552 tok/s, 30.42 GiB logged VRAM |
