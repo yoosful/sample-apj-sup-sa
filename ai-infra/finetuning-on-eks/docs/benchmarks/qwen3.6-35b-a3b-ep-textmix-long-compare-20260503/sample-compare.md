@@ -134,6 +134,7 @@ solve()
 
 ### Fine-tuned
 
+```python
 def can_communicate(R, chef, head_server, sous_chef):
     def distance(p1, p2):
         return ((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)**0.5
@@ -150,6 +151,7 @@ for _ in range(T):
     head_server = tuple(map(int, input().split()))
     sous_chef = tuple(map(int, input().split()))
     print(can_communicate(R, chef, head_server, sous_chef))
+```
 
 ## Prompt 2
 
@@ -236,6 +238,7 @@ if __name__ == "__main__":
 
 ### Fine-tuned
 
+```python
 def gcd(a, b):
     while b:
         a, b = b, a % b
@@ -245,6 +248,7 @@ n = int(input())
 for _ in range(n):
     a, b = input().split()
     print(gcd(int(a), int(b)))
+```
 
 ## Prompt 3
 

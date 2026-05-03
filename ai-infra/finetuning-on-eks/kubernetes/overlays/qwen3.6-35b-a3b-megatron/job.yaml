@@ -508,6 +508,38 @@ spec:
                                 return str(message.get("content", "")).strip()
                     return json.dumps(record, ensure_ascii=False)[:2000]
 
+                def looks_like_python(text):
+                    stripped = text.strip()
+                    if not stripped or "```" in stripped:
+                        return False
+                    markers = (
+                        "def ",
+                        "class ",
+                        "import ",
+                        "from ",
+                        "if __name__",
+                        "for ",
+                        "while ",
+                        "print(",
+                        "input(",
+                    )
+                    code_lines = 0
+                    for line in stripped.splitlines():
+                        candidate = line.strip()
+                        if not candidate:
+                            continue
+                        if candidate.startswith(markers) or candidate.endswith(":"):
+                            code_lines += 1
+                    return code_lines >= 2
+
+                def format_response(text):
+                    if not text:
+                        return "_No output captured._"
+                    stripped = text.strip()
+                    if looks_like_python(stripped):
+                        return f"```python\n{stripped}\n```"
+                    return stripped
+
                 base_rows = load_jsonl(base_path)
                 finetuned_rows = load_jsonl(finetuned_path)
 
@@ -544,11 +576,11 @@ spec:
                             "",
                             "### Base",
                             "",
-                            record["base"] or "_No output captured._",
+                            format_response(record["base"]),
                             "",
                             "### Fine-tuned",
                             "",
-                            record["finetuned"] or "_No output captured._",
+                            format_response(record["finetuned"]),
                             "",
                         ]
                     )
