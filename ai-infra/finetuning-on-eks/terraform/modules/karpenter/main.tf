@@ -174,9 +174,9 @@ resource "aws_iam_role_policy" "karpenter_controller" {
         }
       },
       {
-        Sid    = "AllowScopedResourceTagging"
-        Effect = "Allow"
-        Action = "ec2:CreateTags"
+        Sid      = "AllowScopedResourceTagging"
+        Effect   = "Allow"
+        Action   = "ec2:CreateTags"
         Resource = "arn:${data.aws_partition.current.partition}:ec2:${data.aws_region.current.name}:*:instance/*"
         Condition = {
           StringEquals = {
@@ -245,9 +245,9 @@ resource "aws_iam_role_policy" "karpenter_controller" {
         Resource = "*"
       },
       {
-        Sid    = "AllowPassingInstanceRole"
-        Effect = "Allow"
-        Action = "iam:PassRole"
+        Sid      = "AllowPassingInstanceRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = var.node_iam_role_arn
         Condition = {
           StringEquals = {
@@ -308,9 +308,12 @@ resource "aws_iam_role_policy" "karpenter_controller" {
         }
       },
       {
-        Sid      = "AllowInstanceProfileReadActions"
-        Effect   = "Allow"
-        Action   = "iam:GetInstanceProfile"
+        Sid    = "AllowInstanceProfileReadActions"
+        Effect = "Allow"
+        Action = [
+          "iam:GetInstanceProfile",
+          "iam:ListInstanceProfiles"
+        ]
         Resource = "*"
       },
       {

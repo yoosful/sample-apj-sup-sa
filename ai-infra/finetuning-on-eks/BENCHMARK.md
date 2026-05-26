@@ -14,6 +14,7 @@ Compare training time and cost across different GPU instances for various model 
 |------|-------|----------------|
 | 1B | TinyLlama | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` |
 | 7B | Mistral 7B | `mistralai/Mistral-7B-Instruct-v0.3` |
+| 35B MoE | Qwen3.6 35B-A3B | `Qwen/Qwen3.6-35B-A3B` |
 | 70B | Llama 3 | `meta-llama/Meta-Llama-3-70B` |
 
 ## Instance Comparison Dimensions
@@ -43,6 +44,7 @@ lora_target_modules: ["q_proj", "v_proj", "k_proj", "o_proj"]
 # Quantization / Sharding - per model size (see below)
 # 1B, 8B: use_qlora: false (full precision LoRA)
 # 70B: use_qlora: true (all instances, for fair comparison)
+# 35B MoE: Megatron-SWIFT + LoRA + expert parallelism
 # 235B: DeepSpeed ZeRO-3 + LoRA (full precision, sharded across 8 GPUs)
 
 # Sequence length
@@ -176,6 +178,16 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 70B-08 | p4d.24xlarge | 16 | 2 | FSDP (HYBRID) | Pending |
 | 70B-09 | p4d.24xlarge | 32 | 4 | FSDP (HYBRID) | Pending |
 
+### 35B MoE Model (Qwen3.6-35B-A3B) - Expert Parallelism
+
+| ID | Instance | GPUs | Nodes | Parallelism | Status |
+|----|----------|------|-------|-------------|--------|
+| 35B-MOE-01 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+| 35B-MOE-02 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+| 35B-MOE-03 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+| 35B-MOE-04 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed |
+| 35B-MOE-05 | g6e.12xlarge | 4 | 1 | Megatron-SWIFT LoRA + EP=4 | ✅ Completed; checkpoint archived |
+
 ## Results
 
 ### 1B Model
@@ -249,6 +261,18 @@ Each run processes exactly 10,000 samples, so total job cost = cost per 10k samp
 | 70B-07 | - | - | - | - | - | - | - | |
 | 70B-08 | - | - | - | - | - | - | - | |
 | 70B-09 | - | - | - | - | - | - | - | |
+
+### 35B MoE Model (Qwen3.6-35B-A3B) - Megatron-SWIFT + LoRA + EP
+
+| ID | Batch/GPU | Global Batch | Throughput (samples/s) | Scaling Eff | GPU % | VRAM (GB) | Wall Time | $/10k samples | Notes |
+|----|-----------|--------------|------------------------|-------------|-------|-----------|-----------|---------------|-------|
+| 35B-MOE-01 | 4 | 16 | 1.74† | - | - | 24.27 | 2m27s train / 736s attempt | ~$16.77† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 16 steps |
+| 35B-MOE-02 | 8 | 32 | 1.97† | - | - | 24.77 | 2m10s train / 271s attempt | ~$14.79† | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 8 steps |
+| 35B-MOE-03 | 4 | 16 | 3.62 | - | 100% sampled | 27.14 logged / 29.6 observed | 18m52s train / 2223s full | ~$8.06 train-only / ~$15.82 full | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, unfused attention, 256 steps, `hf::vicgalle/alpaca-gpt4#4096` |
+| 35B-MOE-04 | 4 | 16 | 2.14 | - | 99-100% sampled | 37.32 logged / 38.5-40.6 observed | 31m52s train / 3421s full | ~$13.61 train-only / ~$24.34 full | g6e.12xlarge, 4x L40S, EP=4, LoRA r=8, group_by_length, unfused attention, 256 steps, text-only multi-domain mix |
+| 35B-MOE-05 | 4 | 16 | 2.14 | - | - | 38.10 logged | 31m52s train / 3459s full | ~$13.61 train-only / ~$24.61 full | Clean rerun of 35B-MOE-04; checkpoint-256 and merged 65.4 GiB archive preserved in external S3 |
+
+†Historical smoke benchmark from the earlier local generated dataset on the clean us-east-2 validation cluster. 35B-MOE-04 is the current checked-in overlay result on the SWIFT-supported text-only multi-domain mix. 35B-MOE-05 reruns the same checked-in overlay and preserves both checkpoints outside the Terraform validation stack. 35B-MOE-03 remains the prior Alpaca-GPT4 baseline. Throughput and cost use the final cumulative Megatron `train_speed(s/it)` plus the document's g6e.12xlarge reference price. The "full" cost includes checkpoint merge and before/after sample inference, but still excludes one-time Qwen3.6 model cache population.
 
 ### 235B Model (Qwen3 MoE) - DeepSpeed ZeRO-3 + LoRA
 
@@ -444,6 +468,81 @@ The g7e instance family uses **NVIDIA RTX PRO 6000 Blackwell Server Edition** GP
 - **70B-04 slower than 70B-05 despite higher-spec hardware**: H100 (5.17 s/s) vs RTX 6000 Blackwell (7.51 s/s). At batch_size=1, the H100's compute advantage is wasted on overhead. The RTX 6000 Blackwell achieves 89-97% utilization at the same batch size, suggesting its compute throughput is better matched to the per-sample workload at this scale.
 - **VRAM heavily underutilized**: 8B uses 32.67/80 GB (41%), 70B uses 50.80/80 GB (64%). Increasing batch sizes would improve both throughput and utilization.
 - **Cost-inefficient at current batch sizes**: At $55.04/hr, H100 must deliver proportionally higher throughput to justify the price. 8B-11 at $1.41/10k is competitive, but 70B-04 at $29.57/10k is 2.4x more expensive than 70B-05 ($12.27/10k) while being 31% slower.
+
+### 35B MoE Megatron-SWIFT EP Text-Mix Checkpoint-Preserved Rerun (2026-05-02)
+
+**Configuration:** Clean `dev` deploy in us-east-2 (`cluster_name=pr12eks`) from PR-12. Terraform completed a fresh apply with 114 resources added, including the EFS mount targets. The run used Qwen3.6-35B-A3B, Megatron-SWIFT LoRA rank 8, EP=4, 4x L40S on one g6e.12xlarge, max_length=2048, micro batch 4, global batch 16, grouped length batching, and unfused attention.
+
+**Dataset rationale:** The checked-in overlay uses a SWIFT-supported, text-only multi-domain mix instead of synthetic data or a single Alpaca-style dataset. This is more appropriate for a MoE/EP validation because it exercises routing across reasoning, math/code-style problem solving, and general instruction following while staying within text-only Qwen3.6-35B-A3B SFT support.
+
+**Training datasets:**
+
+- `hf::open-thoughts/OpenThoughts-114k#2048`
+- `hf::bespokelabs/Bespoke-Stratos-17k#1024`
+- `hf::TIGER-Lab/MATH-plus#1024`
+- `hf::allenai/tulu-v2-sft-mixture#1024`
+
+**Evaluation sample datasets:**
+
+- `hf::open-thoughts/OpenThoughts-114k#2`
+- `hf::TIGER-Lab/MATH-plus#1`
+
+**Run result:** Kubernetes Job `qwen-ep-benchmark` completed successfully with run root `/data/qwen-ep-bench/20260502-134932-g6e12-ep4-swift413-textmix`.
+
+| Metric | 35B-MOE-05 |
+|--------|------------|
+| Instance | g6e.12xlarge, 4x L40S |
+| Parallelism | TP=1, PP=1, EP=4 |
+| Train iterations | 256 |
+| Dataset after filtering | 2,255 train / 23 eval samples |
+| Train token length | 595.91 +/- 580.28, min 26, max 2047 |
+| Final cumulative train speed | 7.468456 s/it |
+| Train throughput | 2.14 samples/s |
+| Full run throughput | 1.18 samples/s including save, merge, and sample inference |
+| Final train step loss | 0.31063735 |
+| Eval loss at step 256 | 0.47261980 |
+| Peak logged VRAM | 38.10 GiB |
+| Full run duration | 3459s |
+| Persistent checkpoint archive | `s3://qwen-ep-checkpoints-833277791039-us-east-2/qwen3.6-35b-a3b-textmix/20260502-134932-g6e12-ep4-swift413-textmix/` |
+| S3 archive verification | 38 objects, 65.4 GiB, bucket versioning enabled |
+
+**Validation notes:**
+
+- The rerun preserved `checkpoint-256/` and `checkpoint-256-merged/` to an S3 bucket outside the Terraform stack before any cleanup.
+- The merged checkpoint is the large artifact: 66 GiB on EFS, uploaded as 16 safetensors shards plus tokenizer/config files.
+- vLLM sample generation confirmed expert parallelism during before/after inference: `Expert parallelism is enabled`, EP rank 0/4 with 64 local experts out of 256 global experts.
+
+**Long before/after sample rerun (2026-05-03):**
+
+- Restored the preserved `checkpoint-256-merged/` from the external S3 archive onto a clean eval-only us-east-2 EKS stack (`cluster_name=pr12eval`) and reran direct vLLM generation with `max_new_tokens=1024`, `vllm_max_model_len=4096`, TP=4, and EP enabled.
+- Both base and fine-tuned inference logs confirmed EP rank 0/4 with 64 local experts out of 256 global experts.
+- Result: this qualitative check does not prove quality improvement. The fine-tuned model became much more concise, but Prompt 1 regressed: it accepts any one reachable transceiver pair instead of requiring all three people to be connected. Prompt 2 and Prompt 3 are correct and shorter than the base responses.
+
+### 35B MoE Megatron-SWIFT EP Smoke Test (2026-04-29)
+
+**Configuration (historical, superseded):** Qwen3.6-35B-A3B with Megatron-SWIFT LoRA (rank 8, alpha 32, all-linear target modules), expert parallelism 4, 4 GPUs on one g6e.12xlarge in the clean us-east-2 validation cluster, max_length=2048, 256 locally generated chat samples. The checked-in overlay has since been switched to the text-only multi-domain mix validated in 35B-MOE-04.
+
+**Results:**
+
+| Metric | 35B-MOE-01 | 35B-MOE-02 |
+|--------|------------|------------|
+| Micro batch / global batch | 4 / 16 | 8 / 32 |
+| Steps | 16 | 8 |
+| Final train_speed | 9.206532 s/it | 16.224566 s/it |
+| Throughput | 1.74 samples/s | 1.97 samples/s |
+| Peak logged VRAM | 24.27 GiB | 24.77 GiB |
+| Final loss | 0.00075075 | 0.07459499 |
+| Attempt duration | 736s | 271s |
+
+**Key findings:**
+
+- **RayJob is not the right execution wrapper for this path.** The existing Ray overlays run Ray Train plus Hugging Face Trainer. Megatron-SWIFT launches Megatron/torch.distributed process groups directly, so the reproducible overlay uses a Kubernetes Job.
+- **`attention_backend=flash` failed on the first forward pass.** The failure was `ValueError: No dot product attention backend is available for the provided inputs`. Re-running with `attention_backend=unfused` completed both smoke tests.
+- **EP=4 fits comfortably on L40S for this short LoRA workload.** Peak logged memory stayed under 25 GiB/GPU on 48 GiB L40S cards, leaving headroom for longer runs or larger batch exploration.
+- **The first run is dominated by model cache population.** Initial Qwen3.6 cache population downloaded 40 files and used about 67 GiB on EFS; subsequent runs reused the cache and reached training quickly.
+- **Merged checkpoint saving is a material part of wall time.** The validated overlay saved both Megatron weights and a merged safetensors checkpoint, adding about 6 minutes after the 16 training steps.
+- **Smoke runs should include visible learning artifacts.** The Qwen3.6 overlay runs 256 steps, writes `metrics/loss.csv` plus `metrics/loss.svg`, and runs three sample prompts against both the base and fine-tuned model with thinking disabled for easier comparison. The current dataset defaults are recorded in the run root when the job executes; generated artifacts are kept out of the repository and summarized in the PR body.
+- **Treat these as smoke results, not final benchmark numbers.** The short smoke run is still dominated by warmup, model cache, and checkpoint save overhead relative to useful training time.
 
 ### 235B DeepSpeed ZeRO-3 Observations (2026-03-06)
 
@@ -649,3 +748,7 @@ The linear memory model above significantly underestimates peak VRAM. For LoRA+D
 | 2026-03-08 | Completed 1B-11: g6e.12xlarge 4x L40S DDP batch=12 (142.95 s/s, 70s, $0.20/10k) — highest 1B throughput overall |
 | 2026-03-15 | Completed 1B-12: g7e.24xlarge 4x RTX 6000 Blackwell DDP batch=16 (232.58 s/s, 43s, $0.20/10k — highest 1B throughput) |
 | 2026-03-10 | Completed 70B-13: g7e.48xlarge 8x RTX 6000 LoRA+FSDP (0.67 s/s, 14900s, $137.2/10k). PCIe with limited P2P, 11.9s/step — significantly slower than NVSwitch (70B-12 at 6.0s/step) |
+| 2026-05-02 | Reran Qwen3.6-35B-A3B text-mix EP=4 on a clean us-east-2 deploy and archived checkpoint-256 plus the 65.4 GiB merged checkpoint to external S3 before cleanup |
+| 2026-05-03 | Restored the preserved Qwen3.6-35B-A3B merged checkpoint on a clean eval stack and reran 1024-token before/after samples; documented one coding-sample regression plus two shorter correct responses |
+| 2026-05-01 | Revalidated Qwen3.6-35B-A3B Megatron-SWIFT EP=4 after upstream main sync and clean us-east-2 deploy: mb4/global16 completed with 9.206532s/it, 1.74 s/s, 24.27 GiB logged VRAM |
+| 2026-04-29 | Completed Qwen3.6-35B-A3B Megatron-SWIFT EP=4 smoke benchmark on g6e.12xlarge: mb4/global16 at 1.70 s/s and mb8/global32 at 1.97 s/s; flash attention failed, unfused attention completed |

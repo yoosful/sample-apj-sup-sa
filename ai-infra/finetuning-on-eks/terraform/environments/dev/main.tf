@@ -180,7 +180,7 @@ module "vpc" {
   name         = var.name
   cidr         = "10.0.0.0/16"
   azs          = slice(data.aws_availability_zones.available.names, 0, 3)
-  cluster_name = var.name  # For Karpenter subnet discovery tags
+  cluster_name = var.name # For Karpenter subnet discovery tags
 
   tags = {
     Environment = "dev"
@@ -229,7 +229,7 @@ resource "terraform_data" "update_kubeconfig" {
 
 module "gpu_nodegroup" {
   source = "../../modules/gpu-nodegroup"
-  count  = var.enable_karpenter ? 0 : 1  # Disable when using Karpenter
+  count  = var.enable_karpenter ? 0 : 1 # Disable when using Karpenter
 
   cluster_name   = module.eks.cluster_name
   subnet_ids     = module.vpc.private_subnets
@@ -303,6 +303,16 @@ resource "aws_iam_role_policy_attachment" "karpenter_node_policies" {
 
   policy_arn = each.value
   role       = aws_iam_role.karpenter_node[0].name
+}
+
+resource "aws_eks_access_entry" "karpenter_node" {
+  count = var.enable_karpenter ? 1 : 0
+
+  cluster_name  = module.eks.cluster_name
+  principal_arn = aws_iam_role.karpenter_node[0].arn
+  type          = "EC2_LINUX"
+
+  depends_on = [module.eks]
 }
 
 ################################################################################
@@ -391,8 +401,8 @@ module "kueue" {
   source = "../../modules/kueue"
   count  = var.enable_kueue ? 1 : 0
 
-  cluster_name   = module.eks.cluster_name
-  kueue_version  = "0.16.0"
+  cluster_name  = module.eks.cluster_name
+  kueue_version = "0.16.0"
 
   tags = {
     Environment = "dev"
